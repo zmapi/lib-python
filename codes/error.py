@@ -1,10 +1,13 @@
 import csv
+import os
 
 def import_err_codes():
     """Populates the module namespace with error names and _errors dict."""
     g = globals()
     errors = g["_errors"] = {}
-    with open("codes/data/errcodes.csv") as f:
+    script_dir = os.path.dirname(__file__)
+    fn = os.path.join(script_dir, "codes", "data", "errcodes.csv")
+    with open(fn) as f:
         reader = csv.reader(f, delimiter=",")
         for i, row in enumerate(reader):
             # skip header
