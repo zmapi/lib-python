@@ -1,6 +1,22 @@
 import csv
 import os
 
+################################# EXCEPTIONS ##################################
+
+class RemoteException(Exception):
+    
+    def __init__(self, ecode, msg):
+        self.ecode = ecode
+        self.msg = msg
+        self.name = _errors.get(ecode)["name"]
+        self.args = (self.name, self.msg)
+
+    def __str__(self):
+        id = self.name if self.name is not None else self.ecode
+        return "RemoteException({}): {}".format(id, self.msg)
+
+###############################################################################
+
 def import_err_codes():
     """Populates the module namespace with error names and _errors dict."""
     g = globals()
@@ -24,4 +40,9 @@ def gen_error(ecode, msg=None):
     if not msg:
         msg = _errors[ecode]["msg"]
     return dict(result="error", content=dict(ecode=ecode, msg=msg))
+
+def check_message(msg):
+    if msg["result"] != "ok":
+        content = msg["content"]
+        raise RemoteException(content["ecode"], content["msg"])
 
