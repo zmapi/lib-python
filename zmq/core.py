@@ -49,3 +49,8 @@ class SockRecvPublisher:
         sock.close()
         # drop the topic
         return msg_parts[1:]
+
+    async def destroy(self):
+        self._sock_listen.send_multipart([b"", b""])
+        self._running = False
+        await self.poll_for_pong()
