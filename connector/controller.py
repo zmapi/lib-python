@@ -16,7 +16,7 @@ class ControllerBase:
 
     def __init__(self, name, ctx, addr):
         self._name = name
-        self._tag = "<" + self._name + "> "
+        self._tag = "[" + self._name + "] "
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
 
@@ -53,6 +53,10 @@ class ControllerBase:
         try:
             msg = json.loads(msg.decode())
             msg_id = msg.get("msg_id")
+            debug_str = "ident={}, command={}, msg_id={}"
+            debug_str = debug_str.format(
+                    ident_to_str(ident), msg["command"], msg["msg_id"])
+            L.debug(self._tag + "> " + debug_str)
             res = await self._handle_one_2(ident, msg)
         except InvalidArgumentsException as e:
             L.exception(self._tag + "invalid arguments on message:")
@@ -67,11 +71,11 @@ class ControllerBase:
         else:
             if res is not None:
                 await self._send_result(ident, msg_id, res)
+        L.debug(self._tag + "< " + debug_str)
 
 
     async def _handle_one_2(self, ident, msg):
         cmd = msg["command"]
-        L.debug(self._tag + "{}: {}".format(ident_to_str(ident), cmd))
         f = self._commands.get(cmd)
         if not f:
             raise CommandNotImplemented(cmd)
