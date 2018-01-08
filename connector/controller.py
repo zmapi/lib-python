@@ -5,6 +5,7 @@ import json
 from zmapi.codes import error
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
+from zmapi.utils import *
 from asyncio import ensure_future as create_task
 from time import gmtime
 
@@ -19,6 +20,7 @@ class ControllerBase:
         self._tag = "[" + self._name + "] "
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
+        self._subscriptions = {}
 
     async def _send_error(self, ident, msg_id, ecode, msg=None):
         msg = error.gen_error(ecode, msg)
@@ -73,13 +75,59 @@ class ControllerBase:
                 await self._send_result(ident, msg_id, res)
         L.debug(self._tag + "< " + debug_str)
 
+    # It's a required duty for each connector to track it's subscriptions.
+    # It's not as good to implement this in a middleware module because
+    # middleware lifecycle may not be synchronized with the connector
+    # lifecycle.
+    async def _handle_subscribe(self, ident, msg):
+        """Calls subscribe and tracks subscriptions."""
+        required_fields = [
+            "ticker_id",
+            "order_book_speed",
+            "trades_speed",
+            "order_book_levels"
+        ]
+        check_missing(required_fields, msg["content"])
+        content = msg["content"]
+        ticker_id = content["ticker_id"]
+        ob_speed = content["order_book_speed"]
+        trades_speed = content["trades_speed"]
+        ob_levels = content["order_book_levels"]
+        if ob_speed < 0 or ob_speed > 10:
+            raise InvalidArgumentsException(
+                    "order_book_speed must be in range [0, 10]")
+        if trades_speed < 0 or trades_speed > 10:
+            raise InvalidArgumentsException(
+                    "trades_speed must be in range [0, 10]")
+        if ob_levels < 0:
+            raise InvalidArgumentsException(
+                    "order_book_levels must be a positive integer")
+        res = await self._commands["subscribe"](self, ident, msg)
+        if ob_speed == 0 and trades_speed == 0 and ob_levels == 0:
+            try:
+                del self._subscriptions[ticker_id]
+            except KeyError:
+                pass
+        else:
+            sub_def = {
+                "order_book_speed": ob_speed,
+                "trades_speed": trades_speed,
+                "order_book_levels": ob_levels
+            }
+            self._subscriptions[ticker_id] = sub_def
+        return res
 
     async def _handle_one_2(self, ident, msg):
         cmd = msg["command"]
-        f = self._commands.get(cmd)
-        if not f:
-            raise CommandNotImplemented(cmd)
-        return await f(self, ident, msg)
+        if cmd == "subscribe":
+            return await self._handle_subscribe(ident, msg)
+        if cmd == "get_subscriptions":
+            return self._subscriptions
+        else:
+            f = self._commands.get(cmd)
+            if not f:
+                raise CommandNotImplemented(cmd)
+            return await f(self, ident, msg)
 
     @staticmethod
     def handler(cmd=None):
