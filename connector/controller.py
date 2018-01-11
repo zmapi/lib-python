@@ -81,39 +81,12 @@ class ControllerBase:
     # lifecycle.
     async def _handle_subscribe(self, ident, msg):
         """Calls subscribe and tracks subscriptions."""
-        required_fields = [
-            "ticker_id",
-            "order_book_speed",
-            "trades_speed",
-            "order_book_levels"
-        ]
-        check_missing(required_fields, msg["content"])
-        content = msg["content"]
-        ticker_id = content["ticker_id"]
-        ob_speed = content["order_book_speed"]
-        trades_speed = content["trades_speed"]
-        ob_levels = content["order_book_levels"]
-        if ob_speed < 0 or ob_speed > 10:
-            raise InvalidArgumentsException(
-                    "order_book_speed must be in range [0, 10]")
-        if trades_speed < 0 or trades_speed > 10:
-            raise InvalidArgumentsException(
-                    "trades_speed must be in range [0, 10]")
-        if ob_levels < 0:
-            raise InvalidArgumentsException(
-                    "order_book_levels must be a positive integer")
         res = await self._commands["subscribe"](self, ident, msg)
-        if ob_speed == 0 and trades_speed == 0 and ob_levels == 0:
-            try:
-                del self._subscriptions[ticker_id]
-            except KeyError:
-                pass
+        if ob_speed == 0 and trades_speed == 0:
+            self._subscriptions.pop(ticker_id, "")
         else:
-            sub_def = {
-                "order_book_speed": ob_speed,
-                "trades_speed": trades_speed,
-                "order_book_levels": ob_levels
-            }
+            sub_def = dict(content)
+            del sub_def["ticker_id"]
             self._subscriptions[ticker_id] = sub_def
         return res
 
