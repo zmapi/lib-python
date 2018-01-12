@@ -84,7 +84,9 @@ class ControllerBase:
         res = await self._commands["subscribe"](self, ident, msg)
         content = msg["content"]
         ticker_id = content["ticker_id"]
-        if content["order_book_speed"] == 0 and content["trades_speed"] == 0:
+        if content["order_book_speed"] == 0 \
+                and content["trades_speed"] == 0 \
+                and not content["emit_quotes"]:
             self._subscriptions.pop(ticker_id, "")
         else:
             sub_def = dict(content)
