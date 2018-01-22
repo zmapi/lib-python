@@ -81,9 +81,9 @@ class ControllerBase:
     # lifecycle.
     async def _handle_subscribe(self, ident, msg):
         """Calls subscribe and tracks subscriptions."""
-        res = await self._commands["subscribe"](self, ident, msg)
         content = msg["content"]
         ticker_id = content["ticker_id"]
+        old_sub_def = self._subscriptions.get(ticker_id)
         if content["order_book_speed"] == 0 \
                 and content["trades_speed"] == 0 \
                 and not content["emit_quotes"]:
@@ -92,6 +92,13 @@ class ControllerBase:
             sub_def = dict(content)
             del sub_def["ticker_id"]
             self._subscriptions[ticker_id] = sub_def
+        try:
+            res = await self._commands["subscribe"](self, ident, msg)
+        except Exception as err:
+            if old_sub_def:
+                # revert changes
+                self._subscriptions[ticker_id] = old_sub_def
+            raise err
         return res
 
     async def _handle_one_2(self, ident, msg):
