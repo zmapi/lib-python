@@ -8,6 +8,7 @@ from zmapi.zmq.utils import *
 from zmapi.utils import *
 from asyncio import ensure_future as create_task
 from time import gmtime
+from collections import defaultdict
 
 L = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class ControllerBase:
         self._tag = "[" + self._name + "] "
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
-        self._subscriptions = {}
+        self._subscriptions = defaultdict(empty_sub_def)
 
     async def _send_error(self, ident, msg_id, ecode, msg=None):
         msg = error.gen_error(ecode, msg)
@@ -79,38 +80,39 @@ class ControllerBase:
     # It's not as good to implement this in a middleware module because
     # middleware lifecycle may not be synchronized with the connector
     # lifecycle.
-    async def _handle_subscribe(self, ident, msg):
-        """Calls subscribe and tracks subscriptions."""
+    async def _handle_modify_subscription(self, ident, msg):
+        """Calls modify_subscription and tracks subscriptions."""
         content = msg["content"]
-        ticker_id = content["ticker_id"]
-        old_sub_def = self._subscriptions.get(ticker_id)
-        if content["order_book_speed"] == 0 \
-                and content["trades_speed"] == 0 \
-                and not content["emit_quotes"]:
+        content_mod = dict(content)
+        ticker_id = content_mod.pop("ticker_id")
+        old_sub_def = self._subscriptions[ticker_id]
+        new_sub_def = dict(old_sub_def)
+        new_sub_def.update(content_mod)
+        msg_mod = dict(msg)
+        msg_mod["content"].update(new_sub_def)
+        if sub_def_is_empty(new_sub_def):
             self._subscriptions.pop(ticker_id, "")
         else:
-            sub_def = dict(content)
-            del sub_def["ticker_id"]
-            self._subscriptions[ticker_id] = sub_def
+            self._subscriptions[ticker_id] = new_sub_def
         try:
-            res = await self._commands["subscribe"](self, ident, msg)
+            res = await self._commands["modify_subscription"](
+                    self, ident, msg_mod)
         except Exception as err:
-            if old_sub_def:
-                # revert changes
-                self._subscriptions[ticker_id] = old_sub_def
+            # revert changes
+            self._subscriptions[ticker_id] = old_sub_def
             raise err
         return res
 
     async def _handle_one_2(self, ident, msg):
         cmd = msg["command"]
-        if cmd == "subscribe":
-            return await self._handle_subscribe(ident, msg)
+        if cmd == "modify_subscription":
+            return await self._handle_modify_subscription(ident, msg)
         if cmd == "get_subscriptions":
-            return self._subscriptions
+            return dict(self._subscriptions)
         else:
             f = self._commands.get(cmd)
             if not f:
-                raise CommandNotImplemented(cmd)
+                raise CommandNotImplementedException(cmd)
             return await f(self, ident, msg)
 
     @staticmethod
