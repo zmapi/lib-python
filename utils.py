@@ -1,5 +1,6 @@
 from zmapi.exceptions import *
 from functools import wraps
+import collections
 from collections import OrderedDict
 import inspect
 
@@ -48,3 +49,16 @@ def sub_def_is_empty(d):
     if d["emit_quotes"]:
         return False
     return True
+
+# copied from https://stackoverflow.com/a/3233356/1793556
+def update_dict(d, u):
+    """Update dict recursively.
+    
+    Mutates dict d.
+    """
+    for k, v in u.items():
+        if isinstance(v, collections.Mapping):
+            d[k] = update_dict(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
