@@ -33,23 +33,6 @@ def lru_cache(maxsize=128):
         return memoizer
     return decorator
 
-def empty_sub_def():
-    return {
-        "trades_speed": 0,
-        "order_book_speed": 0,
-        "order_book_levels": 0,
-        "emit_quotes": False,
-    }
-
-def sub_def_is_empty(d):
-    if d["trades_speed"] > 0:
-        return False
-    if d["order_book_speed"] > 0:
-        return False
-    if d["emit_quotes"]:
-        return False
-    return True
-
 # copied from https://stackoverflow.com/a/3233356/1793556
 def update_dict(d, u):
     """Update dict recursively.
