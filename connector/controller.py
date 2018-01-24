@@ -6,9 +6,11 @@ from zmapi.codes import error
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
 from zmapi.utils import *
+from zmapi import SubscriptionDefinition
 from asyncio import ensure_future as create_task
 from time import gmtime
 from collections import defaultdict
+from copy import deepcopy
 
 L = logging.getLogger(__name__)
 
@@ -21,7 +23,7 @@ class ControllerBase:
         self._tag = "[" + self._name + "] "
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
-        self._subscriptions = defaultdict(empty_sub_def)
+        self._subscriptions = defaultdict(SubscriptionDefinition)
 
     async def _send_error(self, ident, msg_id, ecode, msg=None):
         msg = error.gen_error(ecode, msg)
@@ -86,11 +88,11 @@ class ControllerBase:
         content_mod = dict(content)
         ticker_id = content_mod.pop("ticker_id")
         old_sub_def = self._subscriptions[ticker_id]
-        new_sub_def = dict(old_sub_def)
+        new_sub_def = deepcopy(old_sub_def)
         new_sub_def.update(content_mod)
         msg_mod = dict(msg)
-        msg_mod["content"].update(new_sub_def)
-        if sub_def_is_empty(new_sub_def):
+        msg_mod["content"].update(new_sub_def.__dict__)
+        if new_sub_def.empty():
             self._subscriptions.pop(ticker_id, "")
         else:
             self._subscriptions[ticker_id] = new_sub_def
@@ -108,7 +110,7 @@ class ControllerBase:
         if cmd == "modify_subscription":
             return await self._handle_modify_subscription(ident, msg)
         if cmd == "get_subscriptions":
-            return dict(self._subscriptions)
+            return {k: v.__dict__ for k, v in self._subscriptions.items()}
         else:
             f = self._commands.get(cmd)
             if not f:
