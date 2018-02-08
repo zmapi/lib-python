@@ -14,7 +14,7 @@ class SubscriptionDefinition:
         self.trades_speed = kwargs.get("trades_speed", 0)
         self.order_book_speed = kwargs.get("order_book_speed", 0)
         self.order_book_levels = kwargs.get("order_book_levels", 0)
-        self.emit_quotes = kwargs.get("emit_quotes", 0)
+        self.emit_quotes = kwargs.get("emit_quotes", False)
     
     def __getitem__(self, key):
         return self.__dict__[key]
