@@ -18,6 +18,9 @@ class SubscriptionDefinition:
     
     def __getitem__(self, key):
         return self.__dict__[key]
+
+    def __setitem__(self, key, val):
+        self.__dict__[key] = val
     
     def update(self, d):
         if isinstance(d, SubscriptionDefinition):
