@@ -2,13 +2,16 @@ import zmq
 import sys
 import logging
 import json
+import aiohttp
+import re
 from zmapi.codes import error
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
 from zmapi.utils import *
+from zmapi.asyncio import Throttler
 from zmapi import SubscriptionDefinition
 from asyncio import ensure_future as create_task
-from time import gmtime
+from time import time, gmtime
 from collections import defaultdict
 from copy import deepcopy
 
@@ -126,3 +129,57 @@ class ControllerBase:
             ControllerBase._commands[cmd] = f
             return f
         return decorator
+
+
+class RESTController(ControllerBase):
+    
+    """Controller that has built-in throttled and cached http fetching
+    capabilities."""
+
+    def __init__(self, name, ctx, addr):
+        super().__init__(name, ctx, addr)
+        self._rest_result_cache = {}
+        self._throttler_regexps = []
+
+    async def _http_get_cached(self, url, expiration_s=sys.maxsize, **kwargs):
+        session = kwargs.pop("session", None)
+        holder = self._rest_result_cache.get(url)
+        data = None
+        if holder is not None:
+            elapsed = time() - holder["timestamp"]
+            if elapsed < expiration_s:
+                data = holder["data"]
+        if data is None:
+            # find first throttler matching url and throttle if necessary
+            for rex, throttler in self._throttler_regexps:
+                if rex.fullmatch(url):
+                    await throttler()
+                    break
+            timestamp = time()
+            data = await self._do_http_get(session, url)
+            holder = dict(data=data, timestamp=timestamp)
+            self._rest_result_cache[url] = holder
+        return data
+
+    async def _http_get(self, url, **kwargs):
+        return await self._http_get_cached(url, expiration_s=0, **kwargs)
+
+    def _add_throttler(self, regexp, ts_count, tlim_s):
+        rex = re.compile(regexp)
+        self._throttler_regexps.append((rex, Throttler(ts_count, tlim_s)))
+
+    async def _do_http_get(self, session, url):
+        close_session = False
+        if session is None:
+            session = aiohttp.ClientSession()
+            close_session = True
+        data = None
+        async with session.get(url) as r:
+            if r.status < 200 or r.status >= 300:
+                raise Exception("GET {}: status {}".format(url, r.status))
+            data = await r.read()
+        if close_session:
+            session.close()
+        if hasattr(self, "_process_fetched_data"):
+            data = self._process_fetched_data(data, url)
+        return data
