@@ -14,6 +14,7 @@ from asyncio import ensure_future as create_task
 from time import time, gmtime
 from collections import defaultdict
 from copy import deepcopy
+from uuid import uuid4
 
 L = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class ControllerBase:
     def __init__(self, name, ctx, addr):
         self._name = name
         self._tag = "[" + self._name + "] "
+        self._ctx = ctx
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
         self._subscriptions = defaultdict(SubscriptionDefinition)
@@ -136,10 +138,13 @@ class RESTController(ControllerBase):
     """Controller that has built-in throttled and cached http fetching
     capabilities."""
 
-    def __init__(self, name, ctx, addr):
+    def __init__(self, name, ctx, addr, throttler_addr=None):
         super().__init__(name, ctx, addr)
         self._rest_result_cache = {}
         self._throttler_regexps = []
+        if not throttler_addr:
+            throttler_addr = "inproc://throttler-notifications-" + str(uuid4())
+        self._throttler_addr = throttler_addr
 
     async def _http_get_cached(self, url, expiration_s=sys.maxsize, **kwargs):
         session = kwargs.pop("session", None)
@@ -164,9 +169,14 @@ class RESTController(ControllerBase):
     async def _http_get(self, url, **kwargs):
         return await self._http_get_cached(url, expiration_s=0, **kwargs)
 
-    def _add_throttler(self, regexp, ts_count, tlim_s):
+    def _add_throttler(self, regexp, ts_count, tlim_s, tag=None):
         rex = re.compile(regexp)
-        self._throttler_regexps.append((rex, Throttler(ts_count, tlim_s)))
+        sock = self._ctx.socket(zmq.PUB)
+        sock.connect(self._throttler_addr)
+        if not tag:
+            tag = regexp
+        throttler = Throttler(ts_count, tlim_s, sock, tag)
+        self._throttler_regexps.append((rex, throttler))
 
     async def _do_http_get(self, session, url):
         close_session = False
