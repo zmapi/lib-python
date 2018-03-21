@@ -9,8 +9,8 @@ def split_message(msg_parts):
     if not separator_idx:
         raise ValueError("ident separator not found")
     ident = msg_parts[:separator_idx]
-    msg = msg_parts[separator_idx+1]
-    return ident, msg
+    rest = msg_parts[separator_idx+1:]
+    return ident, rest
 
 def ident_to_str(ident):
     return "/".join([x.decode("latin-1").replace("/", "\/") for x in ident])

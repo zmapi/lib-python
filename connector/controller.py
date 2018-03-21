@@ -32,40 +32,38 @@ class ControllerBase:
 
     async def _send_error(self, ident, msg_id, ecode, msg=None):
         msg = error.gen_error(ecode, msg)
-        msg["msg_id"] = msg_id
-        await self._send_reply(ident, msg)
+        await self._send_reply(ident, msg_id, msg)
 
     async def _send_result(self, ident, msg_id, content):
-        msg = dict(msg_id=msg_id, content=content, result="ok")
-        await self._send_reply(ident, msg)
+        msg = dict(content=content, error=False)
+        await self._send_reply(ident, msg_id, msg)
        
-    async def _send_reply(self, ident, res):
-        msg = " " + json.dumps(res)
-        msg = msg.encode()
-        await self._sock.send_multipart(ident + [b"", msg])
+    async def _send_reply(self, ident, msg_id, msg):
+        msg_bytes = (" " + json.dumps(msg)).encode()
+        await self._sock.send_multipart(ident + [b"", msg_id, msg_bytes])
 
     async def run(self):
         while True:
             msg_parts = await self._sock.recv_multipart()
             # pprint(msg_parts)
             try:
-                ident, msg = split_message(msg_parts)
+                ident, rest = split_message(msg_parts)
             except ValueError as err:
                 L.error(self._tag + str(err))
                 continue
-            if len(msg) == 0:
+            if len(rest) == 1 and not len(rest[0]) == 0:
                 # handle ping message
                 await self._sock.send_multipart(msg_parts)
                 continue
-            create_task(self._handle_one_1(ident, msg))
+            msg_id, msg = rest
+            create_task(self._handle_one_1(ident, msg_id, msg))
 
-    async def _handle_one_1(self, ident, msg):
+    async def _handle_one_1(self, ident, msg_id, msg):
         try:
             msg = json.loads(msg.decode())
-            msg_id = msg.get("msg_id")
             debug_str = "ident={}, command={}, msg_id={}"
             debug_str = debug_str.format(
-                    ident_to_str(ident), msg["command"], msg["msg_id"])
+                    ident_to_str(ident), msg["command"], msg_id)
             L.debug(self._tag + "> " + debug_str)
             res = await self._handle_one_2(ident, msg)
         except InvalidArgumentsException as e:

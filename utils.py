@@ -1,8 +1,11 @@
-from zmapi.exceptions import *
-from functools import wraps
 import collections
-from collections import OrderedDict
 import inspect
+import random
+import string
+from collections import OrderedDict
+from functools import wraps
+from zmapi.exceptions import *
+
 
 def check_missing(fields, d):
     if type(fields) is str:
@@ -33,6 +36,7 @@ def lru_cache(maxsize=128):
         return memoizer
     return decorator
 
+
 # copied from https://stackoverflow.com/a/3233356/1793556
 def update_dict(d, u):
     """Update dict recursively.
@@ -45,3 +49,9 @@ def update_dict(d, u):
         else:
             d[k] = v
     return d
+
+
+def random_str(n, symbols=None):
+    if not symbols:
+        symbols = string.ascii_uppercase + string.digits
+    return ''.join(random.choice(symbols) for _ in range(n))

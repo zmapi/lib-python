@@ -39,10 +39,10 @@ def gen_error(ecode, msg=None):
     assert ecode in _errors
     if not msg:
         msg = _errors[ecode]["msg"]
-    return dict(result="error", content=dict(ecode=ecode, msg=msg))
+    return dict(error=True, content=dict(ecode=ecode, msg=msg))
 
 def check_message(msg):
-    if msg["result"] != "ok":
+    if msg.get("error"):
         content = msg["content"]
         raise RemoteException(content["ecode"], content["msg"])
 
