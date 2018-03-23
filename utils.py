@@ -6,7 +6,6 @@ from collections import OrderedDict
 from functools import wraps
 from zmapi.exceptions import *
 
-
 def check_missing(fields, d):
     if type(fields) is str:
         fields = [fields]
@@ -50,8 +49,8 @@ def update_dict(d, u):
             d[k] = v
     return d
 
-
+RND_SYMBOLS = string.ascii_uppercase + string.ascii_lowercase + string.digits
 def random_str(n, symbols=None):
     if not symbols:
-        symbols = string.ascii_uppercase + string.digits
+        symbols = RND_SYMBOLS
     return ''.join(random.choice(symbols) for _ in range(n))
