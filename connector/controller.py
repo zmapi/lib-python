@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
-from zmapi.utils import *
+from zmapi.utils import ctl_send_reply, ctl_send_xreject
 from zmapi.asyncio import Throttler
 from asyncio import ensure_future as create_task
 from time import time, gmtime
@@ -38,11 +38,10 @@ class ControllerBase:
     #     msg = dict(content=content, error=False)
     #     await self._send_reply(ident, msg_id, msg)
        
+
     async def _send_reply(self, ident, msg_id, msg):
-        msg["Header"]["ZMSendingTime"] = \
-                int(datetime.utcnow().timestamp() * 1e9)
-        msg_bytes = (" " + json.dumps(msg)).encode()
-        await self._sock.send_multipart(ident + [b"", msg_id, msg_bytes])
+        await ctl_send_reply(self._sock, ident, msg_id, msg)
+
 
     async def run(self):
         while True:
@@ -56,19 +55,11 @@ class ControllerBase:
             msg_id, msg = rest
             create_task(self._handle_one_1(ident, msg_id, msg))
 
+
     async def _send_xreject(self, ident, msg_id, msg_type, reason, text):
-        d = {}
-        d["Header"] = header = {}
-        header["MsgType"] = msg_type
-        d["Body"] = body = {}
-        body["Text"] = text
-        if msg_type == fix.MsgType.Reject:
-            body["SessionRejectReason"] = reason
-        elif msg_type == fix.MsgType.BusinessMessageReject:
-            body["BusinessRejectReason"] = reason
-        elif msg_type == fix.MsgType.MarketDataRequestReject:
-            body["MDReqRejReason"] = reason
-        await self._send_reply(ident, msg_id, d)
+        await ctl_send_xreject(self._sock, ident, msg_id,
+                               msg_type, reason, text)
+
 
     async def _handle_one_1(self, ident, msg_id, msg):
         try:

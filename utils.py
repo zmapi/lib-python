@@ -2,6 +2,8 @@ import collections
 import inspect
 import random
 import string
+import json
+from datetime import datetime
 from collections import OrderedDict
 from functools import wraps
 from zmapi.exceptions import *
@@ -58,7 +60,7 @@ def random_str(n, symbols=None):
 
 
 async def ctl_send_reply(sock, ident, msg_id, msg):
-    if "ZMSendingTime" not in msg["header"]:
+    if "ZMSendingTime" not in msg["Header"]:
         msg["Header"]["ZMSendingTime"] = \
                 int(datetime.utcnow().timestamp() * 1e9)
     msg_bytes = (" " + json.dumps(msg)).encode()
