@@ -49,8 +49,32 @@ def update_dict(d, u):
             d[k] = v
     return d
 
+
 RND_SYMBOLS = string.ascii_uppercase + string.ascii_lowercase + string.digits
 def random_str(n, symbols=None):
     if not symbols:
         symbols = RND_SYMBOLS
     return ''.join(random.choice(symbols) for _ in range(n))
+
+
+async def ctl_send_reply(sock, ident, msg_id, msg):
+    if "ZMSendingTime" not in msg["header"]:
+        msg["Header"]["ZMSendingTime"] = \
+                int(datetime.utcnow().timestamp() * 1e9)
+    msg_bytes = (" " + json.dumps(msg)).encode()
+    await sock.send_multipart(ident + [b"", msg_id, msg_bytes])
+
+
+async def ctl_send_xreject(sock, ident, msg_id, msg_type, reason, text):
+    d = {}
+    d["Header"] = header = {}
+    header["MsgType"] = msg_type
+    d["Body"] = body = {}
+    body["Text"] = text
+    if msg_type == fix.MsgType.Reject:
+        body["SessionRejectReason"] = reason
+    elif msg_type == fix.MsgType.BusinessMessageReject:
+        body["BusinessRejectReason"] = reason
+    elif msg_type == fix.MsgType.MarketDataRequestReject:
+        body["MDReqRejReason"] = reason
+    await send_reply(sock, ident, msg_id, d)

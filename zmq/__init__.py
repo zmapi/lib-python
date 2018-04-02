@@ -1,1 +1,1 @@
-from .core import SockRecvPublisher
+from .core import ReturningDealer
