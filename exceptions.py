@@ -1,23 +1,8 @@
-class RemoteException(Exception):
-    
-    def __init__(self, ecode, msg):
-        self.ecode = ecode
-        self.msg = msg
-        self.name = _errors.get(ecode)["name"]
-        self.args = (self.name, self.msg)
-
-    def __str__(self):
-        id = self.name if self.name is not None else self.ecode
-        return "RemoteException({}): {}".format(id, self.msg)
-
-class CodecException(Exception):
+class RejectException(Exception):
     pass
 
-class DecodingException(Exception):
+class BusinessMessageRejectException(Exception):
     pass
 
-class InvalidArgumentsException(Exception):
-    pass
-
-class CommandNotImplementedException(Exception):
+class MarketDataRequestRejectException(Exception):
     pass

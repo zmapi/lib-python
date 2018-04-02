@@ -4,17 +4,17 @@ import logging
 import json
 import aiohttp
 import re
-from zmapi.codes import error
+from datetime import datetime
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
 from zmapi.utils import *
 from zmapi.asyncio import Throttler
-from zmapi import SubscriptionDefinition
 from asyncio import ensure_future as create_task
 from time import time, gmtime
 from collections import defaultdict
 from copy import deepcopy
 from uuid import uuid4
+from zmapi import fix
 
 L = logging.getLogger(__name__)
 
@@ -28,17 +28,19 @@ class ControllerBase:
         self._ctx = ctx
         self._sock = ctx.socket(zmq.ROUTER)
         self._sock.bind(addr)
-        self._subscriptions = defaultdict(SubscriptionDefinition)
+        self._subscriptions = {}
 
-    async def _send_error(self, ident, msg_id, ecode, msg=None):
-        msg = error.gen_error(ecode, msg)
-        await self._send_reply(ident, msg_id, msg)
+    # async def _send_error(self, ident, msg_id, ecode, msg=None):
+    #     msg = error.gen_error(ecode, msg)
+    #     await self._send_reply(ident, msg_id, msg)
 
-    async def _send_result(self, ident, msg_id, content):
-        msg = dict(content=content, error=False)
-        await self._send_reply(ident, msg_id, msg)
+    # async def _send_result(self, ident, msg_id, content):
+    #     msg = dict(content=content, error=False)
+    #     await self._send_reply(ident, msg_id, msg)
        
     async def _send_reply(self, ident, msg_id, msg):
+        msg["Header"]["ZMSendingTime"] = \
+                int(datetime.utcnow().timestamp() * 1e9)
         msg_bytes = (" " + json.dumps(msg)).encode()
         await self._sock.send_multipart(ident + [b"", msg_id, msg_bytes])
 
@@ -58,66 +60,120 @@ class ControllerBase:
             msg_id, msg = rest
             create_task(self._handle_one_1(ident, msg_id, msg))
 
+    async def _send_xreject(self, ident, msg_id, msg_type, reason, text):
+        d = {}
+        d["Header"] = header = {}
+        header["MsgType"] = msg_type
+        d["Body"] = body = {}
+        body["Text"] = text
+        if msg_type == fix.MsgType.Reject:
+            body["SessionRejectReason"] = reason
+        elif msg_type == fix.MsgType.BusinessMessageReject:
+            body["BusinessRejectReason"] = reason
+        elif msg_type == fix.MsgType.MarketDataRequestReject:
+            body["MDReqRejReason"] = reason
+        await self._send_reply(ident, msg_id, d)
+
     async def _handle_one_1(self, ident, msg_id, msg):
         try:
             msg = json.loads(msg.decode())
-            debug_str = "ident={}, command={}, msg_id={}"
+            msg_type = msg["Header"]["MsgType"]
+            debug_str = "ident={}, MsgType={}, msg_id={}"
             debug_str = debug_str.format(
-                    ident_to_str(ident), msg["command"], msg_id)
+                    ident_to_str(ident), msg_type, msg_id)
             L.debug(self._tag + "> " + debug_str)
             res = await self._handle_one_2(ident, msg)
-        except InvalidArgumentsException as e:
-            L.exception(self._tag + "invalid arguments on message:")
-            await self._send_error(ident, msg_id, error.ARGS, str(e))
-        except CommandNotImplementedException as e:
-            L.exception(self._tag + "command not implemented:")
-            await self._send_error(ident, msg_id, error.NOTIMPL, str(e))
+        except RejectException as e:
+            L.exception(self._tag + "Reject processing {}: {}".format(msg_id, str(e)))
+            reason, text = e.args
+            await self._send_xreject(ident,
+                                     msg_id,
+                                     fix.MsgType.Reject,
+                                     reason,
+                                     text)
+        except BusinessMessageRejectException as e:
+            L.exception(self._tag + "BMReject processing {}: {}".format(msg_id, str(e)))
+            reason, text = e.args
+            await self._send_xreject(ident,
+                                     msg_id,
+                                     fix.MsgType.BusinessMessageReject,
+                                     reason,
+                                     text)
+        except MarketDataRequestRejectException as e:
+            L.exception(self._tag + "MDRReject processing {}: {}".format(msg_id, str(e)))
+            reason, text = e.args
+            await self._send_xreject(ident,
+                                     msg_id,
+                                     fix.MsgType.MarketDataRequestReject,
+                                     reason,
+                                     text)
         except Exception as e:
-            L.exception(self._tag + "general exception handling message:",
-                        str(e))
-            await self._send_error(ident, msg_id, error.GENERIC, str(e))
+            L.exception(self._tag + "GenericError processing {}: {}"
+                        .format(msg_id, str(e)))
+            await self._send_xreject(ident,
+                                     msg_id,
+                                     fix.MsgType.BusinessMessageReject,
+                                     fix.BusinessRejectReason.ZMGenericError,
+                                     "{}: {}".format(type(e).__name__, e))
         else:
             if res is not None:
-                await self._send_result(ident, msg_id, res)
+                await self._send_reply(ident, msg_id, res)
         L.debug(self._tag + "< " + debug_str)
 
     # It's a required duty for each connector to track it's subscriptions.
     # It's not as good to implement this in a middleware module because
     # middleware lifecycle may not be synchronized with the connector
     # lifecycle.
-    async def _handle_modify_subscription(self, ident, msg):
-        """Calls modify_subscription and tracks subscriptions."""
-        content = msg["content"]
-        content_mod = dict(content)
-        ticker_id = content_mod.pop("ticker_id")
-        old_sub_def = self._subscriptions[ticker_id]
-        new_sub_def = deepcopy(old_sub_def)
-        new_sub_def.update(content_mod)
-        msg_mod = dict(msg)
-        msg_mod["content"].update(new_sub_def.__dict__)
-        if new_sub_def.empty():
-            self._subscriptions.pop(ticker_id, "")
+    async def _handle_market_data_request(self, ident, msg):
+        body = msg["Body"]
+        sub_def = deepcopy(body)
+        instrument_id = sub_def.pop("ZMInstrumentID")
+        old_sub_def = self._subscriptions.get(instrument_id)
+        if body["SubscriptionRequestType"] == '2':
+            self._subscriptions.pop(instrument_id, None)
         else:
-            self._subscriptions[ticker_id] = new_sub_def
+            self._subscriptions[instrument_id] = body
         try:
-            res = await self._commands["modify_subscription"](
-                    self, ident, msg_mod)
-        except Exception as err:
-            # revert changes
-            self._subscriptions[ticker_id] = old_sub_def
-            raise err
+            res = await self.MarketDataRequest(ident, msg)
+        except Exception as e:
+            self._subscriptions[instrument_id] = old_sub_def
+            raise e
         return res
 
+        # content = msg["content"]
+        # content_mod = dict(content)
+        # ticker_id = content_mod.pop("ticker_id")
+        # old_sub_def = self._subscriptions[ticker_id]
+        # new_sub_def = deepcopy(old_sub_def)
+        # new_sub_def.update(content_mod)
+        # msg_mod = dict(msg)
+        # msg_mod["content"].update(new_sub_def.__dict__)
+        # if new_sub_def.empty():
+        #     self._subscriptions.pop(ticker_id, "")
+        # else:
+        #     self._subscriptions[ticker_id] = new_sub_def
+        # try:
+        #     res = await self._commands["modify_subscription"](
+        #             self, ident, msg_mod)
+        # except Exception as err:
+        #     # revert changes
+        #     self._subscriptions[ticker_id] = old_sub_def
+        #     raise err
+        # return res
+
     async def _handle_one_2(self, ident, msg):
-        cmd = msg["command"]
-        if cmd == "modify_subscription":
-            return await self._handle_modify_subscription(ident, msg)
-        if cmd == "get_subscriptions":
-            return {k: v.__dict__ for k, v in self._subscriptions.items()}
+        msg_type = msg["Header"]["MsgType"]
+        if msg_type == fix.MsgType.MarketDataRequest:
+            return await self._handle_market_data_request(ident, msg)
+        if msg_type == fix.MsgType.ZMGetSubscriptions:
+            pass
+            # return {k: v.__dict__ for k, v in self._subscriptions.items()}
         else:
-            f = self._commands.get(cmd)
+            f = self._commands.get(msg_type)
             if not f:
-                raise CommandNotImplementedException(cmd)
+                raise BusinessMessageRejectException(
+                        fix.BusinessRejectReason.UnsupportedMessageType,
+                        "MsgType '{}' not supported".format(msg_type))
             return await f(self, ident, msg)
 
     @staticmethod
@@ -126,7 +182,12 @@ class ControllerBase:
             nonlocal cmd
             if not cmd:
                 cmd = f.__name__
-            ControllerBase._commands[cmd] = f
+            msg_type = None
+            for k, v in fix.MsgType.__dict__.items():
+                if k == cmd:
+                    msg_type = v
+            assert msg_type, cmd
+            ControllerBase._commands[msg_type] = f
             return f
         return decorator
 
