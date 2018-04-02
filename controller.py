@@ -7,7 +7,6 @@ import re
 from datetime import datetime
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
-from zmapi.utils import ctl_send_reply, ctl_send_xreject
 from zmapi.asyncio import Throttler
 from asyncio import ensure_future as create_task
 from time import time, gmtime
@@ -18,50 +17,43 @@ from zmapi import fix
 
 L = logging.getLogger(__name__)
 
-class ControllerBase:
+class Controller:
 
-    _commands = {}
 
-    def __init__(self, name, ctx, addr):
+    def __init__(self, name, sock_dn):
         self._name = name
         self._tag = "[" + self._name + "] "
-        self._ctx = ctx
-        self._sock = ctx.socket(zmq.ROUTER)
-        self._sock.bind(addr)
-        self._subscriptions = {}
+        self._sock_dn = sock_dn
 
-    # async def _send_error(self, ident, msg_id, ecode, msg=None):
-    #     msg = error.gen_error(ecode, msg)
-    #     await self._send_reply(ident, msg_id, msg)
-
-    # async def _send_result(self, ident, msg_id, content):
-    #     msg = dict(content=content, error=False)
-    #     await self._send_reply(ident, msg_id, msg)
-       
 
     async def _send_reply(self, ident, msg_id, msg):
-        await ctl_send_reply(self._sock, ident, msg_id, msg)
-
-
-    async def run(self):
-        while True:
-            msg_parts = await self._sock.recv_multipart()
-            # pprint(msg_parts)
-            try:
-                ident, rest = split_message(msg_parts)
-            except ValueError as err:
-                L.error(self._tag + str(err))
-                continue
-            msg_id, msg = rest
-            create_task(self._handle_one_1(ident, msg_id, msg))
+        if "ZMSendingTime" not in msg["Header"]:
+            msg["Header"]["ZMSendingTime"] = \
+                    int(datetime.utcnow().timestamp() * 1e9)
+        msg_bytes = (" " + json.dumps(msg)).encode()
+        await self._sock_dn.send_multipart(ident + [b"", msg_id, msg_bytes])
 
 
     async def _send_xreject(self, ident, msg_id, msg_type, reason, text):
-        await ctl_send_xreject(self._sock, ident, msg_id,
-                               msg_type, reason, text)
+        d = {}
+        d["Header"] = header = {}
+        header["MsgType"] = msg_type
+        d["Body"] = body = {}
+        body["Text"] = text
+        if msg_type == fix.MsgType.Reject:
+            body["SessionRejectReason"] = reason
+        elif msg_type == fix.MsgType.BusinessMessageReject:
+            body["BusinessRejectReason"] = reason
+        elif msg_type == fix.MsgType.MarketDataRequestReject:
+            body["MDReqRejReason"] = reason
+        await self._send_reply(ident, msg_id, d)
 
 
-    async def _handle_one_1(self, ident, msg_id, msg):
+    async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
+        raise NotImplementedError("_handle_msg_2 must be implemented")
+    
+
+    async def _handle_msg_1(self, ident, msg_id, msg):
         try:
             msg = json.loads(msg.decode())
             msg_type = msg["Header"]["MsgType"]
@@ -69,9 +61,10 @@ class ControllerBase:
             debug_str = debug_str.format(
                     ident_to_str(ident), msg_type, msg_id)
             L.debug(self._tag + "> " + debug_str)
-            res = await self._handle_one_2(ident, msg)
+            res = await self._handle_msg_2(ident, msg_id, msg, msg_type)
         except RejectException as e:
-            L.exception(self._tag + "Reject processing {}: {}".format(msg_id, str(e)))
+            L.exception(self._tag + "Reject processing {}: {}"
+                        .format(msg_id, str(e)))
             reason, text = e.args
             await self._send_xreject(ident,
                                      msg_id,
@@ -79,7 +72,8 @@ class ControllerBase:
                                      reason,
                                      text)
         except BusinessMessageRejectException as e:
-            L.exception(self._tag + "BMReject processing {}: {}".format(msg_id, str(e)))
+            L.exception(self._tag + "BMReject processing {}: {}"
+                        .format(msg_id, str(e)))
             reason, text = e.args
             await self._send_xreject(ident,
                                      msg_id,
@@ -87,7 +81,8 @@ class ControllerBase:
                                      reason,
                                      text)
         except MarketDataRequestRejectException as e:
-            L.exception(self._tag + "MDRReject processing {}: {}".format(msg_id, str(e)))
+            L.exception(self._tag + "MDRReject processing {}: {}"
+                        .format(msg_id, str(e)))
             reason, text = e.args
             await self._send_xreject(ident,
                                      msg_id,
@@ -106,6 +101,31 @@ class ControllerBase:
             if res is not None:
                 await self._send_reply(ident, msg_id, res)
         L.debug(self._tag + "< " + debug_str)
+
+
+    async def run(self):
+        L.debug(self._tag + "controller running ...")
+        while True:
+            msg_parts = await self._sock_dn.recv_multipart()
+            try:
+                ident, rest = split_message(msg_parts)
+            except ValueError as err:
+                L.error(str(err))
+                continue
+            msg_id, msg = rest
+            create_task(self._handle_msg_1(ident, msg_id, msg))
+
+
+class ConnectorCTL(Controller):
+
+
+    _commands = {}
+
+
+    def __init__(self, name, sock_dn):
+        super().__init__(name, sock_dn)
+        self._subscriptions = {}
+
 
     # It's a required duty for each connector to track it's subscriptions.
     # It's not as good to implement this in a middleware module because
@@ -126,26 +146,6 @@ class ControllerBase:
             self._subscriptions[instrument_id] = old_sub_def
             raise e
         return res
-        # content = msg["content"]
-        # content_mod = dict(content)
-        # ticker_id = content_mod.pop("ticker_id")
-        # old_sub_def = self._subscriptions[ticker_id]
-        # new_sub_def = deepcopy(old_sub_def)
-        # new_sub_def.update(content_mod)
-        # msg_mod = dict(msg)
-        # msg_mod["content"].update(new_sub_def.__dict__)
-        # if new_sub_def.empty():
-        #     self._subscriptions.pop(ticker_id, "")
-        # else:
-        #     self._subscriptions[ticker_id] = new_sub_def
-        # try:
-        #     res = await self._commands["modify_subscription"](
-        #             self, ident, msg_mod)
-        # except Exception as err:
-        #     # revert changes
-        #     self._subscriptions[ticker_id] = old_sub_def
-        #     raise err
-        # return res
 
 
     async def _handle_test_request(self, ident, msg):
@@ -155,8 +155,8 @@ class ControllerBase:
         res["Body"] = {"TestReqID": msg["Body"]["TestReqID"]}
         return res
 
-    async def _handle_one_2(self, ident, msg):
-        msg_type = msg["Header"]["MsgType"]
+
+    async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
         if msg_type == fix.MsgType.TestRequest:
             return await self._handle_test_request(ident, msg)
         if msg_type == fix.MsgType.MarketDataRequest:
@@ -172,6 +172,7 @@ class ControllerBase:
                         "MsgType '{}' not supported".format(msg_type))
             return await f(self, ident, msg)
 
+
     @staticmethod
     def handler(cmd=None):
         def decorator(f):
@@ -183,23 +184,26 @@ class ControllerBase:
                 if k == cmd:
                     msg_type = v
             assert msg_type, cmd
-            ControllerBase._commands[msg_type] = f
+            ConnectorCTL._commands[msg_type] = f
             return f
         return decorator
 
 
-class RESTController(ControllerBase):
+class RESTConnectorCTL(ConnectorCTL):
     
     """Controller that has built-in throttled and cached http fetching
     capabilities."""
 
-    def __init__(self, name, ctx, addr, throttler_addr=None):
-        super().__init__(name, ctx, addr)
+
+    def __init__(self, name, sock_dn, ctx, throttler_addr=None):
+        super().__init__(name, sock_dn)
+        self._ctx = ctx
         self._rest_result_cache = {}
         self._throttler_regexps = []
         if not throttler_addr:
             throttler_addr = "inproc://throttler-notifications-" + str(uuid4())
         self._throttler_addr = throttler_addr
+
 
     async def _http_get_cached(self, url, expiration_s=sys.maxsize, **kwargs):
         session = kwargs.pop("session", None)
@@ -221,8 +225,10 @@ class RESTController(ControllerBase):
             self._rest_result_cache[url] = holder
         return data
 
+
     async def _http_get(self, url, **kwargs):
         return await self._http_get_cached(url, expiration_s=0, **kwargs)
+
 
     def _add_throttler(self, regexp, ts_count, tlim_s, tag=None):
         rex = re.compile(regexp)
@@ -232,6 +238,7 @@ class RESTController(ControllerBase):
             tag = regexp
         throttler = Throttler(ts_count, tlim_s, sock, tag)
         self._throttler_regexps.append((rex, throttler))
+
 
     async def _do_http_get(self, session, url):
         close_session = False
