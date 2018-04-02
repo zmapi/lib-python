@@ -85,6 +85,8 @@ class MDUpdateType(IntEnum):
     IncrementalRefresh = 1
 
 class MsgType:
+    Heartbeat = "0"
+    TestRequest = "1"
     Reject = "3"
     Logout = "5"
     IOI = "6"

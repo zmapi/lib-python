@@ -53,10 +53,6 @@ class ControllerBase:
             except ValueError as err:
                 L.error(self._tag + str(err))
                 continue
-            if len(rest) == 1 and not len(rest[0]) == 0:
-                # handle ping message
-                await self._sock.send_multipart(msg_parts)
-                continue
             msg_id, msg = rest
             create_task(self._handle_one_1(ident, msg_id, msg))
 
@@ -139,7 +135,6 @@ class ControllerBase:
             self._subscriptions[instrument_id] = old_sub_def
             raise e
         return res
-
         # content = msg["content"]
         # content_mod = dict(content)
         # ticker_id = content_mod.pop("ticker_id")
@@ -161,8 +156,18 @@ class ControllerBase:
         #     raise err
         # return res
 
+
+    async def _handle_test_request(self, ident, msg):
+        body = msg["Body"]
+        res = {}
+        res["Header"] = {"MsgType": fix.MsgType.Heartbeat}
+        res["Body"] = {"TestReqID": msg["Body"]["TestReqID"]}
+        return res
+
     async def _handle_one_2(self, ident, msg):
         msg_type = msg["Header"]["MsgType"]
+        if msg_type == fix.MsgType.TestRequest:
+            return await self._handle_test_request(ident, msg)
         if msg_type == fix.MsgType.MarketDataRequest:
             return await self._handle_market_data_request(ident, msg)
         if msg_type == fix.MsgType.ZMGetSubscriptions:
