@@ -22,34 +22,28 @@ L = logging.getLogger(__name__)
 class Controller:
 
 
-    _commands = {}
-    @staticmethod
-    def handler(cmd=None):
-        def decorator(f):
-            nonlocal cmd
-            if not cmd:
-                cmd = f.__name__
-            msg_type = None
-            for k, v in fix.MsgType.__dict__.items():
-                if k == cmd:
-                    msg_type = v
-            assert msg_type, cmd
-            Controller._commands[msg_type] = f
-            return f
-        return decorator
-
-
-    def __init__(self, name, sock_dn):
+    def __init__(self, sock_dn, name=None):
         self._name = name
-        self._tag = "[" + self._name + "] "
+        if self._name:
+            self._tag = "[" + self._name + "] "
+        else:
+            self._tag = ""
         self._sock_dn = sock_dn
+        self._commands = {}
+        for name, msg_type in fix.MsgType.__dict__.items():
+            f = self.__class__.__dict__.get(name)
+            if f:
+                self._commands[msg_type] = f
 
 
     async def _send_reply(self, ident, msg_id, msg):
-        if "ZMSendingTime" not in msg["Header"]:
-            msg["Header"]["ZMSendingTime"] = \
-                    int(datetime.utcnow().timestamp() * 1e9)
-        msg_bytes = (" " + json.dumps(msg)).encode()
+        if type(msg) == bytes:
+            msg_bytes = msg
+        else:
+            if "ZMSendingTime" not in msg["Header"]:
+                msg["Header"]["ZMSendingTime"] = \
+                        int(datetime.utcnow().timestamp() * 1e9)
+            msg_bytes = (" " + json.dumps(msg)).encode()
         await self._sock_dn.send_multipart(ident + [b"", msg_id, msg_bytes])
 
 
@@ -136,6 +130,7 @@ class Controller:
             create_task(self._handle_msg_1(ident, msg_id, msg))
 
 
+############################ CONNECTOR CONTROLLERS ############################
 
 
 class ConnectorCTL(Controller):
@@ -211,7 +206,6 @@ class ConnectorCTL(Controller):
         return res
 
 
-    @Controller.handler()
     async def TestRequest(self, ident, msg_raw, msg):
         body = msg["Body"]
         res = {}
@@ -220,7 +214,6 @@ class ConnectorCTL(Controller):
         return res
 
 
-    @Controller.handler()
     async def ZMGetSubscriptions(self, ident, msg_raw, msg):
         body = msg["Body"]
         tid = body.get("ZMTickerID")
@@ -248,7 +241,7 @@ class ConnectorCTL(Controller):
             return await self._handle_list_directory(
                     ident, msg_raw, msg)
         else:
-            f = Controller._commands.get(msg_type)
+            f = self._commands.get(msg_type)
             if not f:
                 raise BusinessMessageRejectException(
                         fix.BusinessRejectReason.UnsupportedMessageType,
