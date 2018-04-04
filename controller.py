@@ -15,9 +15,28 @@ from copy import deepcopy
 from uuid import uuid4
 from zmapi import fix
 
+
 L = logging.getLogger(__name__)
 
+
 class Controller:
+
+
+    _commands = {}
+    @staticmethod
+    def handler(cmd=None):
+        def decorator(f):
+            nonlocal cmd
+            if not cmd:
+                cmd = f.__name__
+            msg_type = None
+            for k, v in fix.MsgType.__dict__.items():
+                if k == cmd:
+                    msg_type = v
+            assert msg_type, cmd
+            Controller._commands[msg_type] = f
+            return f
+        return decorator
 
 
     def __init__(self, name, sock_dn):
@@ -49,19 +68,20 @@ class Controller:
         await self._send_reply(ident, msg_id, d)
 
 
-    async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
+    async def _handle_msg_2(self, ident, msg_raw, msg, msg_type):
         raise NotImplementedError("_handle_msg_2 must be implemented")
-    
 
-    async def _handle_msg_1(self, ident, msg_id, msg):
+
+    async def _handle_msg_1(self, ident, msg_id, msg_raw):
         try:
-            msg = json.loads(msg.decode())
+            msg = json.loads(msg_raw.decode())
             msg_type = msg["Header"]["MsgType"]
             debug_str = "ident={}, MsgType={}, msg_id={}"
             debug_str = debug_str.format(
                     ident_to_str(ident), msg_type, msg_id)
             L.debug(self._tag + "> " + debug_str)
-            res = await self._handle_msg_2(ident, msg_id, msg, msg_type)
+            res = await self._handle_msg_2(
+                    ident, msg_raw, msg, msg_type)
         except RejectException as e:
             L.exception(self._tag + "Reject processing {}: {}"
                         .format(msg_id, str(e)))
@@ -116,39 +136,83 @@ class Controller:
             create_task(self._handle_msg_1(ident, msg_id, msg))
 
 
+
+
 class ConnectorCTL(Controller):
-
-
-    _commands = {}
 
 
     def __init__(self, name, sock_dn):
         super().__init__(name, sock_dn)
         self._subscriptions = {}
+        self.insid_to_tid = {}
+        self._ticker_id = 0
+
+
+    def gen_ticker_id(self):
+        tid = self._ticker_id
+        self._ticker_id += 1
+        return tid
 
 
     # It's a required duty for each connector to track it's subscriptions.
     # It's not as good to implement this in a middleware module because
     # middleware lifecycle may not be synchronized with the connector
     # lifecycle.
-    async def _handle_market_data_request(self, ident, msg):
+    async def _handle_market_data_request(self, ident, msg_raw, msg):
         body = msg["Body"]
-        sub_def = deepcopy(body)
-        instrument_id = sub_def.pop("ZMInstrumentID")
+        instrument_id = body["ZMInstrumentID"]
+        if instrument_id not in self.insid_to_tid:
+            self.insid_to_tid[instrument_id] = self.gen_ticker_id()
+        tid = self.insid_to_tid[instrument_id]
         old_sub_def = self._subscriptions.get(instrument_id)
         if body["SubscriptionRequestType"] == '2':
-            self._subscriptions.pop(instrument_id, None)
+            self._subscriptions.pop(tid, None)
         else:
-            self._subscriptions[instrument_id] = body
+            self._subscriptions[tid] = body
         try:
-            res = await self.MarketDataRequest(ident, msg)
+            res = await self.MarketDataRequest(ident, msg_raw, msg)
+            res["Body"]["ZMTickerID"] = tid
         except Exception as e:
             self._subscriptions[instrument_id] = old_sub_def
             raise e
         return res
 
 
-    async def _handle_test_request(self, ident, msg):
+    async def _handle_security_list_request(self, ident, msg_raw, msg):
+        if "SecurityListRequest" not in self.__class__.__dict__:
+            raise BusinessMessageRejectException(
+                    fix.BusinessRejectReason.UnsupportedMessageType,
+                    "MsgType '{}' not supported".format(msg_type))
+        res = await self.SecurityListRequest(ident, msg_raw, msg)
+        body = res["Body"]
+        for d in body["SecListGrp"]:
+            insid = d["ZMInstrumentID"]
+            if insid not in self.insid_to_tid:
+                self.insid_to_tid[insid] = self.gen_ticker_id()
+            tid = self.insid_to_tid[insid]
+            d["ZMTickerID"] = tid
+        return res
+
+
+    async def _handle_list_directory(self, ident, msg_raw, msg):
+        if "ZMListDirectory" not in self.__class__.__dict__:
+            raise BusinessMessageRejectException(
+                    fix.BusinessRejectReason.UnsupportedMessageType,
+                    "MsgType '{}' not supported".format(msg_type))
+        res = await self.ZMListDirectory(ident, msg_raw, msg)
+        body = res["Body"]
+        for d in body["ZMDirEntries"]:
+            insid = d.get("ZMInstrumentID")
+            if insid:
+                if insid not in self.insid_to_tid:
+                    self.insid_to_tid[insid] = self.gen_ticker_id()
+                tid = self.insid_to_tid[insid]
+                d["ZMTickerID"] = tid
+        return res
+
+
+    @Controller.handler()
+    async def TestRequest(self, ident, msg_raw, msg):
         body = msg["Body"]
         res = {}
         res["Header"] = {"MsgType": fix.MsgType.Heartbeat}
@@ -156,37 +220,51 @@ class ConnectorCTL(Controller):
         return res
 
 
-    async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
-        if msg_type == fix.MsgType.TestRequest:
-            return await self._handle_test_request(ident, msg)
-        if msg_type == fix.MsgType.MarketDataRequest:
-            return await self._handle_market_data_request(ident, msg)
-        if msg_type == fix.MsgType.ZMGetSubscriptions:
-            pass
-            # return {k: v.__dict__ for k, v in self._subscriptions.items()}
+    @Controller.handler()
+    async def ZMGetSubscriptions(self, ident, msg_raw, msg):
+        body = msg["Body"]
+        tid = body.get("ZMTickerID")
+        res = {}
+        res["Header"] = {"MsgType": fix.MsgType.ZMGetSubscriptionsResponse}
+        res["Body"] = body = {}
+        if tid:
+            d = {"ZMTickerID": tid, "ZMSubscription": self._subscriptions[tid]}
+            body["ZMSubscriptionsGrp"] = [d]
         else:
-            f = self._commands.get(msg_type)
+            body["ZMSubscriptionsGrp"] = \
+                    [{"ZMTickerID": k, "ZMSubscription": v}
+                     for k, v in self._subscriptions.items()]
+        return res
+
+
+    async def _handle_msg_2(self, ident, msg_raw, msg, msg_type):
+        if msg_type == fix.MsgType.MarketDataRequest:
+            return await self._handle_market_data_request(
+                    ident, msg_raw, msg)
+        elif msg_type == fix.MsgType.SecurityListRequest:
+            return await self._handle_security_list_request(
+                    ident, msg_raw, msg)
+        elif msg_type == fix.MsgType.ZMListDirectory:
+            return await self._handle_list_directory(
+                    ident, msg_raw, msg)
+        else:
+            f = Controller._commands.get(msg_type)
             if not f:
                 raise BusinessMessageRejectException(
                         fix.BusinessRejectReason.UnsupportedMessageType,
                         "MsgType '{}' not supported".format(msg_type))
-            return await f(self, ident, msg)
+            return await f(self, ident, msg_raw, msg)
 
 
-    @staticmethod
-    def handler(cmd=None):
-        def decorator(f):
-            nonlocal cmd
-            if not cmd:
-                cmd = f.__name__
-            msg_type = None
-            for k, v in fix.MsgType.__dict__.items():
-                if k == cmd:
-                    msg_type = v
-            assert msg_type, cmd
-            ConnectorCTL._commands[msg_type] = f
-            return f
-        return decorator
+    # async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
+    #     # if msg_type == fix.MsgType.TestRequest:
+    #     #     return await self._handle_test_request(ident, msg)
+    #     # if msg_type == fix.MsgType.MarketDataRequest:
+    #     #     return await self._handle_market_data_request(ident, msg)
+    #     # if msg_type == fix.MsgType.ZMGetSubscriptions:
+    #     #     pass
+    #     #     # return {k: v.__dict__ for k, v in self._subscriptions.items()}
+    #     # else:
 
 
 class RESTConnectorCTL(ConnectorCTL):
