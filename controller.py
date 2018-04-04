@@ -4,6 +4,7 @@ import logging
 import json
 import aiohttp
 import re
+import string
 from datetime import datetime
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
@@ -30,10 +31,17 @@ class Controller:
             self._tag = ""
         self._sock_dn = sock_dn
         self._commands = {}
+        # subclass to superclass order
+        mro = [x for x in self.__class__.mro()
+               if issubclass(x, Controller)]
         for name, msg_type in fix.MsgType.__dict__.items():
-            f = self.__class__.__dict__.get(name)
-            if f:
-                self._commands[msg_type] = f
+            if name[0] not in string.ascii_uppercase:
+                continue
+            for klass in mro:
+                f = klass.__dict__.get(name)
+                if f:
+                    self._commands[msg_type] = f
+                    break
 
 
     async def _send_reply(self, ident, msg_id, msg):
