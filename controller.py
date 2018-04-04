@@ -136,8 +136,8 @@ class Controller:
 class ConnectorCTL(Controller):
 
 
-    def __init__(self, name, sock_dn):
-        super().__init__(name, sock_dn)
+    def __init__(self, sock_dn, name=None):
+        super().__init__(sock_dn, name=name)
         self._subscriptions = {}
         self.insid_to_tid = {}
         self._ticker_id = 0
@@ -266,8 +266,8 @@ class RESTConnectorCTL(ConnectorCTL):
     capabilities."""
 
 
-    def __init__(self, name, sock_dn, ctx, throttler_addr=None):
-        super().__init__(name, sock_dn)
+    def __init__(self, sock_dn, ctx, throttler_addr=None, name=None):
+        super().__init__(sock_dn, name=name)
         self._ctx = ctx
         self._rest_result_cache = {}
         self._throttler_regexps = []
