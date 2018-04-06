@@ -51,7 +51,7 @@ class ReturningDealer:
         if ident:
             await self._sock_dealer.send_multipart(ident + [b"", msg_id, msg])
         else:
-            await self._sock_dealer.send_multipart(b"", msg_id, msg)
+            await self._sock_dealer.send_multipart([b"", msg_id, msg])
         return await self.poll_for_msg_id(msg_id, timeout)
 
 

@@ -32,6 +32,11 @@ class MarketDepth(IntEnum):
     FullBookDepth = 0
     TopOfBook = 1
 
+class MDBookType(IntEnum):
+    TopOfBook = 1
+    PriceDepth = 2
+    OrderDepth = 3
+
 class MDEntryType:
     Bid = "0"
     Offer = "1"
@@ -125,6 +130,12 @@ class MsgType:
     BidResponse = "l"
     SecurityListRequest = "x"
     SecurityList = "y"
+
+ERROR_MSG_TYPES = set()
+ERROR_MSG_TYPES.add(MsgType.Reject)
+ERROR_MSG_TYPES.add(MsgType.BusinessMessageReject)
+ERROR_MSG_TYPES.add(MsgType.MarketDataRequestReject)
+ERROR_MSG_TYPES.add(MsgType.OrderCancelReject)
 
 class QuoteCondition:
     Open = "A"

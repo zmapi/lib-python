@@ -162,16 +162,17 @@ class ConnectorCTL(Controller):
     # middleware lifecycle may not be synchronized with the connector
     # lifecycle.
     async def _handle_market_data_request(self, ident, msg_raw, msg):
-        body = msg["Body"]
-        instrument_id = body["ZMInstrumentID"]
+        sub_def = deepcopy(msg["Body"])
+        sub_def.pop("MDReqID", None)
+        instrument_id = sub_def["ZMInstrumentID"]
         if instrument_id not in self.insid_to_tid:
             self.insid_to_tid[instrument_id] = self.gen_ticker_id()
         tid = self.insid_to_tid[instrument_id]
         old_sub_def = self._subscriptions.get(instrument_id)
-        if body["SubscriptionRequestType"] == '2':
+        if sub_def["SubscriptionRequestType"] == '2':
             self._subscriptions.pop(tid, None)
         else:
-            self._subscriptions[tid] = body
+            self._subscriptions[tid] = sub_def
         try:
             res = await self.MarketDataRequest(ident, msg_raw, msg)
             res["Body"]["ZMTickerID"] = tid
@@ -218,7 +219,10 @@ class ConnectorCTL(Controller):
         body = msg["Body"]
         res = {}
         res["Header"] = {"MsgType": fix.MsgType.Heartbeat}
-        res["Body"] = {"TestReqID": msg["Body"]["TestReqID"]}
+        tr_id = body.get("TestReqID")
+        res["Body"] = {}
+        if tr_id:
+            res["Body"]["TestReqID"] = tr_id
         return res
 
 
