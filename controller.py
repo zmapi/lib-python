@@ -163,21 +163,26 @@ class ConnectorCTL(Controller):
     # lifecycle.
     async def _handle_market_data_request(self, ident, msg_raw, msg):
         sub_def = deepcopy(msg["Body"])
-        sub_def.pop("MDReqID", None)
+        md_req_id = sub_def.pop("MDReqID", None)
         instrument_id = sub_def["ZMInstrumentID"]
         if instrument_id not in self.insid_to_tid:
             self.insid_to_tid[instrument_id] = self.gen_ticker_id()
         tid = self.insid_to_tid[instrument_id]
-        old_sub_def = self._subscriptions.get(instrument_id)
+        old_sub_def = self._subscriptions.get(tid)
         if sub_def["SubscriptionRequestType"] == '2':
             self._subscriptions.pop(tid, None)
-        else:
+        elif sub_def["SubscriptionRequestType"] == "1":
             self._subscriptions[tid] = sub_def
         try:
             res = await self.MarketDataRequest(ident, msg_raw, msg)
             res["Body"]["ZMTickerID"] = tid
+            if md_req_id:
+                res["Body"]["MDReqID"] = md_req_id
         except Exception as e:
-            self._subscriptions[instrument_id] = old_sub_def
+            if old_sub_def:
+                self._subscriptions[tid] = old_sub_def
+            else:
+                self._subscriptions.pop(tid, None)
             raise e
         return res
 
