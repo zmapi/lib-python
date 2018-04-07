@@ -6,6 +6,7 @@ import aiohttp
 import re
 import string
 from datetime import datetime
+from zmapi.utils import check_if_error
 from zmapi.exceptions import *
 from zmapi.zmq.utils import *
 from zmapi.asyncio import Throttler
@@ -343,3 +344,53 @@ class RESTConnectorCTL(ConnectorCTL):
         if hasattr(self, "_process_fetched_data"):
             data = self._process_fetched_data(data, url)
         return data
+
+
+########################### MIDDLEWARE CONTROLLERS ############################
+
+
+class MiddlewareCTL(Controller):
+
+
+    def __init__(self, sock_dn, dealer):
+        super().__init__(sock_dn)
+        self._dealer = dealer
+
+
+    async def send_recv_command(self, msg_type, body=None,
+                                ident=None, timeout=None,
+                                check_error=True):
+        msg = {"Header": {"MsgType": msg_type}}
+        msg["Body"] = body if body is not None else {}
+        msg_bytes = (" " + json.dumps(msg)).encode()
+        msg_parts = await self._dealer.send_recv_msg(
+                msg_bytes, ident=ident, timeout=timeout)
+        if not msg_parts:
+            return
+        msg = json.loads(msg_parts[-1].decode())
+        if check_error:
+            check_if_error(msg)
+        return msg
+
+
+    def _get_status(self):
+        return {}
+
+
+    async def ZMGetStatus(self, ident, msg_raw, msg):
+        res_up = await self._dealer.send_recv_msg(msg_raw, ident=ident)
+        res_up = json.loads(res_up[-1].decode())["Body"]
+        res = {}
+        res["Header"] = res_up["Header"]
+        header["MsgType"] = fix.MsgType.ZMGetStatusResponse
+        res["Body"] = [self._get_status()] + res_up
+        return res
+
+
+    async def _handle_msg_2(self, ident, msg_raw, msg, msg_type):
+        f = self._commands.get(msg_type)
+        if f:
+            return await f(self, ident, msg_raw, msg)
+        if not f:
+            res = await self._dealer.send_recv_msg(msg_raw, ident=ident)
+            return res[-1]
