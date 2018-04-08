@@ -118,6 +118,8 @@ class MsgType:
     ZMListCapabilitiesResponse = "ZMC"
     ZMListDirectory = "ZMd"
     ZMListDirectoryResponse = "ZMD"
+    ZMListEndpoints = "ZMe"
+    ZMListEndpointsResponse = "ZME"
     ZMMarketDataRequestResponse = "ZMM"
     SecurityDefinitionRequest = "c"
     SecurityDefinition = "d"

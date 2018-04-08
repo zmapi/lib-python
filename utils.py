@@ -3,6 +3,8 @@ import inspect
 import random
 import string
 import json
+import zmq.asyncio
+from time import time
 from uuid import uuid4
 from datetime import datetime
 from collections import OrderedDict
@@ -75,14 +77,24 @@ def check_if_error(msg):
                 body.get("MDReqRejReason"), body.get("Text"))
 
 
-async def send_recv_command_raw(sock, msg_type, body=None):
+async def send_recv_command_raw(sock, msg_type, body=None, timeout=None):
     msg = {"Header": {"MsgType": msg_type}}
     msg["Body"] = body if body is not None else {}
     msg_bytes = (" " + json.dumps(msg)).encode()
     msg_id_in = str(uuid4()).encode()
     await sock.send_multipart([b"", msg_id_in, msg_bytes])
+    poller = zmq.asyncio.Poller()
+    poller.register(sock, zmq.POLLIN)
+    start_time = time()
     # this will wipe the message queue
     while True:
+        if timeout is None:
+            res = await poller.poll(timeout)
+        else:
+            remaining_ms = timeout - (time() - start_time)
+            res = await poller.poll(remaining_ms)
+        if not res:
+            return
         msg_parts = await sock.recv_multipart()
         if msg_parts[-2] == msg_id_in:
             msg = msg_parts[-1]
@@ -90,3 +102,14 @@ async def send_recv_command_raw(sock, msg_type, body=None):
     msg = json.loads(msg.decode())
     check_if_error(msg)
     return msg
+
+
+def partition(coll, n, step=None, complete_only=False):
+    if step is None:
+        step = n
+    for i in range(0, len(coll), step):
+        items_over = i + n - len(coll)
+        if items_over > 0 and complete_only:
+            return
+        else:
+            yield coll[i:i+n]
