@@ -379,11 +379,10 @@ class MiddlewareCTL(Controller):
 
     async def ZMGetStatus(self, ident, msg_raw, msg):
         res_up = await self._dealer.send_recv_msg(msg_raw, ident=ident)
-        res_up = json.loads(res_up[-1].decode())["Body"]
+        res_up = json.loads(res_up[-1].decode())
         res = {}
         res["Header"] = res_up["Header"]
-        header["MsgType"] = fix.MsgType.ZMGetStatusResponse
-        res["Body"] = [self._get_status()] + res_up
+        res["Body"] = [self._get_status()] + res_up["Body"]
         return res
 
 
