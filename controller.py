@@ -357,10 +357,17 @@ class MiddlewareCTL(Controller):
         self._dealer = dealer
 
 
-    async def send_recv_command(self, msg_type, body=None,
-                                ident=None, timeout=None,
-                                check_error=True):
-        msg = {"Header": {"MsgType": msg_type}}
+    async def send_recv_command(self, msg_type, **kwargs):
+        body = kwargs.get("body", None)
+        ident = kwargs.get("ident", None)
+        timeout = kwargs.get("timeout", None)
+        endpoint = kwargs.get("endpoint", None)
+        check_error = kwargs.get("check_error", None)
+        msg = {}
+        msg["Header"] = header = {}
+        header["MsgType"] = msg_type
+        if endpoint:
+            header["ZMEndpoint"] = endpoint
         msg["Body"] = body if body is not None else {}
         msg_bytes = (" " + json.dumps(msg)).encode()
         msg_parts = await self._dealer.send_recv_msg(

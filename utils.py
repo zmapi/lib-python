@@ -1,9 +1,11 @@
+import asyncio
 import collections
 import inspect
 import random
 import string
 import json
 import zmq.asyncio
+from numbers import Number
 from time import time
 from uuid import uuid4
 from datetime import datetime
@@ -77,8 +79,15 @@ def check_if_error(msg):
                 body.get("MDReqRejReason"), body.get("Text"))
 
 
-async def send_recv_command_raw(sock, msg_type, body=None, timeout=None):
-    msg = {"Header": {"MsgType": msg_type}}
+async def send_recv_command_raw(sock, msg_type, **kwargs):
+    body = kwargs.get("body", None)
+    timeout = kwargs.get("timeout", None)
+    endpoint = kwargs.get("endpoint", None)
+    msg = {}
+    msg["Header"] = header = {}
+    header["MsgType"] = msg_type
+    if endpoint:
+        header["ZMEndpoint"] = endpoint
     msg["Body"] = body if body is not None else {}
     msg_bytes = (" " + json.dumps(msg)).encode()
     msg_id_in = str(uuid4()).encode()
@@ -113,3 +122,15 @@ def partition(coll, n, step=None, complete_only=False):
             return
         else:
             yield coll[i:i+n]
+
+
+def get_timestamp():
+    return int(datetime.utcnow().timestamp() * 1e9)
+
+
+async def delayed(f, delay_or_waitable):
+    if isinstance(delay_or_waitable, Number):
+        await asyncio.sleep(delay_secs)
+    else:
+        await delay_or_waitable.wait()
+    await f()

@@ -100,6 +100,7 @@ class MsgType:
     OrderCancelReject = "9"
     Logon = "A"
     News = "B"
+    UserNotification = "CB"
     DontKnowTrade = "Q"
     QuoteRequest = "R"
     Quote = "S"
@@ -108,19 +109,19 @@ class MsgType:
     MarketDataIncrementalRefresh = "X"
     MarketDataRequestReject = "Y"
     QuoteCancel = "Z"
-    ZMGetInstrumentFields = "ZMf"
-    ZMGetInstrumentFieldsResponse = "ZMF"
-    ZMGetStatus = "ZMs"
-    ZMGetStatusResponse = "ZMS"
-    ZMGetSubscriptions = "ZMv"
-    ZMGetSubscriptionsResponse = "ZMV"
     ZMListCapabilities = "ZMc"
     ZMListCapabilitiesResponse = "ZMC"
     ZMListDirectory = "ZMd"
     ZMListDirectoryResponse = "ZMD"
     ZMListEndpoints = "ZMe"
     ZMListEndpointsResponse = "ZME"
+    ZMGetInstrumentFields = "ZMf"
+    ZMGetInstrumentFieldsResponse = "ZMF"
     ZMMarketDataRequestResponse = "ZMM"
+    ZMGetStatus = "ZMs"
+    ZMGetStatusResponse = "ZMS"
+    ZMGetSubscriptions = "ZMv"
+    ZMGetSubscriptionsResponse = "ZMV"
     SecurityDefinitionRequest = "c"
     SecurityDefinition = "d"
     SecurityStatusRequest = "e"
@@ -190,3 +191,9 @@ class TradeCondition:
     OpeningPrice = "R"
     HighPrice = "AX"
     LowPrice = "AY"
+
+class UserStatus(IntEnum):
+    Other = 6
+    ForcedUserLogoutByExchange = 7
+    SessionShutdownWarning = 8
+    Disconnected = 9
