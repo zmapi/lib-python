@@ -13,6 +13,8 @@ def split_message(msg_parts):
     return ident, rest
 
 def ident_to_str(ident):
+    # "latin-1" decoding never throws exceptions on python on any input so 
+    # something printable will always come out as a result...
     return "/".join([x.decode("latin-1").replace("/", "\/") for x in ident])
 
 def get_last_ep(sock):

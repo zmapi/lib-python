@@ -33,6 +33,7 @@ class ReturningDealer:
         poller.register(sock, zmq.POLLIN)
         res = await poller.poll(timeout)
         if not res:
+            sock.close()
             return
         msg_parts = await sock.recv_multipart()
         sock.close()
