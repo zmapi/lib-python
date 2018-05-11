@@ -191,8 +191,8 @@ class ConnectorCTL(Controller):
     async def _handle_security_list_request(self, ident, msg_raw, msg):
         if "SecurityListRequest" not in self.__class__.__dict__:
             raise BusinessMessageRejectException(
-                    fix.BusinessRejectReason.UnsupportedMessageType,
-                    "MsgType '{}' not supported".format(msg_type))
+                    "MsgType '{}' not supported".format(msg_type),
+                    fix.BusinessRejectReason.UnsupportedMessageType)
         res = await self.SecurityListRequest(ident, msg_raw, msg)
         body = res["Body"]
         for d in body["SecListGrp"]:
@@ -207,8 +207,8 @@ class ConnectorCTL(Controller):
     async def _handle_list_directory(self, ident, msg_raw, msg):
         if "ZMListDirectory" not in self.__class__.__dict__:
             raise BusinessMessageRejectException(
-                    fix.BusinessRejectReason.UnsupportedMessageType,
-                    "MsgType '{}' not supported".format(msg_type))
+                    "MsgType '{}' not supported".format(msg_type),
+                    fix.BusinessRejectReason.UnsupportedMessageType)
         res = await self.ZMListDirectory(ident, msg_raw, msg)
         body = res["Body"]
         for d in body["ZMDirEntries"]:
@@ -262,8 +262,8 @@ class ConnectorCTL(Controller):
             f = self._commands.get(msg_type)
             if not f:
                 raise BusinessMessageRejectException(
-                        fix.BusinessRejectReason.UnsupportedMessageType,
-                        "MsgType '{}' not supported".format(msg_type))
+                        "MsgType '{}' not supported".format(msg_type),
+                        fix.BusinessRejectReason.UnsupportedMessageType)
             return await f(self, ident, msg_raw, msg)
 
 

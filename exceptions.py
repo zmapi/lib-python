@@ -1,8 +1,17 @@
+from zmapi import fix
+
+
 class RejectException(Exception):
-    pass
+    def __init__(self, text, reason=fix.SessionRejectReason.Other):
+        super().__init__()
+        self.args = (text, reason)
+
 
 class BusinessMessageRejectException(Exception):
-    pass
+    def __init__(self, text, reason=fix.BusinessRejectReason.ZMGenericError):
+        super().__init__()
+        self.args = (text, reason)
+
 
 class MarketDataRequestRejectException(Exception):
     pass
