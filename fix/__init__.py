@@ -76,6 +76,7 @@ class MDReqRejReason:
     UnsupportedOpenCloseSettleFlag = "B"
     UnsupportedMDImplicitDelete = "C"
     InsufficientCredit = "D"
+    ZMGenericError = "z"
 
 class MDUpdateAction:
     New = "0"
@@ -158,6 +159,7 @@ class SecurityRequestResult(IntEnum):
     # RequestTypeNotSupported = 3
     # InvalidInstrumentStructureSpecified = 12
 
+
 class SessionRejectReason(IntEnum):
     InvalidTagNumber = 0
     RequiredTagMissing = 1
@@ -191,6 +193,19 @@ class TradeCondition:
     OpeningPrice = "R"
     HighPrice = "AX"
     LowPrice = "AY"
+
+
+class TradSesStatus(IntEnum):
+    Unknown=0
+    Halted=1
+    Open=2
+    Closed=3
+    PreOpen=4
+    PreClose=5
+    RequestRejected=6
+    RestrictedOpen=51
+    Failed=52
+
 
 class UserStatus(IntEnum):
     Other = 6

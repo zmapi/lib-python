@@ -193,7 +193,15 @@ class ConnectorCTL(Controller):
             raise BusinessMessageRejectException(
                     "MsgType '{}' not supported".format(msg_type),
                     fix.BusinessRejectReason.UnsupportedMessageType)
-        res = await self.SecurityListRequest(ident, msg_raw, msg)
+        try:
+            res = await self.SecurityListRequest(ident, msg_raw, msg)
+        except RejectException as err:
+            raise err
+        except BusinessMessageRejectException as err:
+            raise err
+        except Exception as err:
+            raise MarketDataRequestRejectException(
+                    "{}: {}".format(type(err).__name__, err))
         body = res["Body"]
         for d in body["SecListGrp"]:
             insid = d["ZMInstrumentID"]

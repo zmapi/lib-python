@@ -14,4 +14,6 @@ class BusinessMessageRejectException(Exception):
 
 
 class MarketDataRequestRejectException(Exception):
-    pass
+    def __init__(self, text, reason=fix.MDReqRejReason.ZMGenericError):
+        super().__init__()
+        self.args = (text, reason)

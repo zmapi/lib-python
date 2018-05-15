@@ -5,6 +5,7 @@ import random
 import string
 import json
 import zmq.asyncio
+import os
 from numbers import Number
 from time import time
 from uuid import uuid4
@@ -134,3 +135,18 @@ async def delayed(f, delay_or_waitable):
     else:
         await delay_or_waitable.wait()
     await f()
+
+
+def makedirs(path):
+    if os.path.isdir(path):
+        return
+    if os.path.isfile(path):
+        raise ValueError("'{}' is a file".format(path))
+    os.makedirs(path)
+
+
+def get_zmapi_dir():
+    home_dir = os.path.expanduser("~")
+    zmapi_dir = os.path.join(home_dir, ".zmapi")
+    makedirs(zmapi_dir)
+    return zmapi_dir
