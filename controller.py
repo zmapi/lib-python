@@ -88,7 +88,7 @@ class Controller:
         except RejectException as e:
             L.exception(self._tag + "Reject processing {}: {}"
                         .format(msg_id, str(e)))
-            reason, text = e.args
+            text, reason = e.args
             await self._send_xreject(ident,
                                      msg_id,
                                      fix.MsgType.Reject,
@@ -97,7 +97,7 @@ class Controller:
         except BusinessMessageRejectException as e:
             L.exception(self._tag + "BMReject processing {}: {}"
                         .format(msg_id, str(e)))
-            reason, text = e.args
+            text, reason = e.args
             await self._send_xreject(ident,
                                      msg_id,
                                      fix.MsgType.BusinessMessageReject,
@@ -106,7 +106,7 @@ class Controller:
         except MarketDataRequestRejectException as e:
             L.exception(self._tag + "MDRReject processing {}: {}"
                         .format(msg_id, str(e)))
-            reason, text = e.args
+            text, reason = e.args
             await self._send_xreject(ident,
                                      msg_id,
                                      fix.MsgType.MarketDataRequestReject,
