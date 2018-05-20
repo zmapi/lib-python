@@ -150,3 +150,13 @@ def get_zmapi_dir():
     zmapi_dir = os.path.join(home_dir, ".zmapi")
     makedirs(zmapi_dir)
     return zmapi_dir
+
+
+def count_num_decimals(x):
+    count = 0
+    x = x - int(x)
+    while abs(x) > 1e-12:  # check what is the best tolerance value here
+        x *= 10
+        x = x - int(x)
+        count += 1
+    return count
