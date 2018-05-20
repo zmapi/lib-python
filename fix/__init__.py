@@ -175,6 +175,21 @@ class SessionRejectReason(IntEnum):
     IncorrectNumInGroupCountForRepeatingGroup = 16
     Other = 99
 
+
+class SecurityTradingStatus(IntEnum):
+    OpeningDelay = 1
+    TradingHalt = 2
+    Resume = 3
+    NoOpen = 4
+    ReadyToTrade = 17
+    UnknownOrInvalid = 20
+    PreOpen = 21
+    PostClose = 26
+    PreClose = 51
+    RestrictedOpen = 52
+    Failed = 53
+
+
 class SubscriptionRequestType:
     Snapshot = "0"
     SnapshotAndUpdates = "1"
@@ -196,15 +211,13 @@ class TradeCondition:
 
 
 class TradSesStatus(IntEnum):
-    Unknown=0
-    Halted=1
-    Open=2
-    Closed=3
-    PreOpen=4
-    PreClose=5
-    RequestRejected=6
-    RestrictedOpen=51
-    Failed=52
+    Unknown = 0
+    Halted = 1
+    Open = 2
+    Closed = 3
+    PreOpen = 4
+    PreClose = 5
+    RequestRejected = 6
 
 
 class UserStatus(IntEnum):
