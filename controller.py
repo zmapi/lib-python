@@ -56,18 +56,16 @@ class Controller:
         await self._sock_dn.send_multipart(ident + [b"", msg_id, msg_bytes])
 
 
-    async def _send_xreject(self, ident, msg_id, msg_type, reason, text):
+    async def _send_xreject(
+            self, ident, msg_id, reason, text, field_name=None):
         d = {}
         d["Header"] = header = {}
-        header["MsgType"] = msg_type
+        header["MsgType"] = fix.MsgType.ZMReject
         d["Body"] = body = {}
         body["Text"] = text
-        if msg_type == fix.MsgType.Reject:
-            body["SessionRejectReason"] = reason
-        elif msg_type == fix.MsgType.BusinessMessageReject:
-            body["BusinessRejectReason"] = reason
-        elif msg_type == fix.MsgType.MarketDataRequestReject:
-            body["MDReqRejReason"] = reason
+        body["ZMRejectReason"] = reason
+        if field_name:
+            body["ZMRefFieldName"] = field_name
         await self._send_reply(ident, msg_id, d)
 
 
@@ -86,39 +84,20 @@ class Controller:
             res = await self._handle_msg_2(
                     ident, msg_raw, msg, msg_type)
         except RejectException as e:
-            L.exception(self._tag + "Reject processing {}: {}"
+            L.exception(self._tag + "ZMReject processing {}: {}"
                         .format(msg_id, str(e)))
-            text, reason = e.args
+            text, reason, field_name = e.args
             await self._send_xreject(ident,
                                      msg_id,
-                                     fix.MsgType.Reject,
                                      reason,
-                                     text)
-        except BusinessMessageRejectException as e:
-            L.exception(self._tag + "BMReject processing {}: {}"
-                        .format(msg_id, str(e)))
-            text, reason = e.args
-            await self._send_xreject(ident,
-                                     msg_id,
-                                     fix.MsgType.BusinessMessageReject,
-                                     reason,
-                                     text)
-        except MarketDataRequestRejectException as e:
-            L.exception(self._tag + "MDRReject processing {}: {}"
-                        .format(msg_id, str(e)))
-            text, reason = e.args
-            await self._send_xreject(ident,
-                                     msg_id,
-                                     fix.MsgType.MarketDataRequestReject,
-                                     reason,
-                                     text)
+                                     text,
+                                     field_name)
         except Exception as e:
-            L.exception(self._tag + "GenericError processing {}: {}"
+            L.exception(self._tag + "Generic ZMReject processing {}: {}"
                         .format(msg_id, str(e)))
             await self._send_xreject(ident,
                                      msg_id,
-                                     fix.MsgType.BusinessMessageReject,
-                                     fix.BusinessRejectReason.ZMGenericError,
+                                     fix.ZMRejectReason.Other,
                                      "{}: {}".format(type(e).__name__, e))
         else:
             if res is not None:
@@ -190,9 +169,9 @@ class ConnectorCTL(Controller):
 
     async def _handle_security_list_request(self, ident, msg_raw, msg):
         if "SecurityListRequest" not in self.__class__.__dict__:
-            raise BusinessMessageRejectException(
+            raise RejectException(
                     "MsgType '{}' not supported".format(msg_type),
-                    fix.BusinessRejectReason.UnsupportedMessageType)
+                    fix.ZMRejectReason.UnsupportedMsgType)
         try:
             res = await self.SecurityListRequest(ident, msg_raw, msg)
         except RejectException as err:
@@ -214,9 +193,9 @@ class ConnectorCTL(Controller):
 
     async def _handle_list_directory(self, ident, msg_raw, msg):
         if "ZMListDirectory" not in self.__class__.__dict__:
-            raise BusinessMessageRejectException(
+            raise RejectException(
                     "MsgType '{}' not supported".format(msg_type),
-                    fix.BusinessRejectReason.UnsupportedMessageType)
+                    fix.ZMRejectReason.UnsupportedMsgType)
         res = await self.ZMListDirectory(ident, msg_raw, msg)
         body = res["Body"]
         for d in body["ZMDirEntries"]:
@@ -269,9 +248,9 @@ class ConnectorCTL(Controller):
         else:
             f = self._commands.get(msg_type)
             if not f:
-                raise BusinessMessageRejectException(
+                raise RejectException(
                         "MsgType '{}' not supported".format(msg_type),
-                        fix.BusinessRejectReason.UnsupportedMessageType)
+                        fix.ZMRejectReason.UnsupportedMsgType)
             return await f(self, ident, msg_raw, msg)
 
 
@@ -345,7 +324,7 @@ class RESTConnectorCTL(ConnectorCTL):
         data = None
         async with session.get(url) as r:
             if r.status < 200 or r.status >= 300:
-                raise Exception("GET {}: status {}".format(url, r.status))
+                raise IOError("GET {}: status {}".format(url, r.status))
             data = await r.read()
         if close_session:
             session.close()

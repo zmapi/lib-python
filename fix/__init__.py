@@ -110,6 +110,7 @@ class MsgType:
     MarketDataIncrementalRefresh = "X"
     MarketDataRequestReject = "Y"
     QuoteCancel = "Z"
+    ZMReject = "ZM3"
     ZMListCapabilities = "ZMc"
     ZMListCapabilitiesResponse = "ZMC"
     ZMListDirectory = "ZMd"
@@ -225,3 +226,15 @@ class UserStatus(IntEnum):
     ForcedUserLogoutByExchange = 7
     SessionShutdownWarning = 8
     Disconnected = 9
+
+
+class ZMRejectReason(IntEnum):
+    Other = 0
+    InvalidValue = 1
+    InvalidMsgType = 3
+    UnknownInstrument = 4
+    InsufficientPermissions = 5
+    RequiredFieldMissing = 6
+    ConditionallyRequiredFieldMissing = 7
+    InvalidPriceIncrement = 8
+    UnsupportedMsgType = 9

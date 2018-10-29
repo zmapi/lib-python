@@ -69,15 +69,8 @@ def random_str(n, symbols=None):
 def check_if_error(msg):
     body = msg["Body"]
     msg_type = msg["Header"]["MsgType"]
-    if msg_type == fix.MsgType.Reject:
-        raise RejectException(
-                body.get("SessionRejectReason"), body.get("Text"))
-    if msg_type == fix.MsgType.BusinessMessageReject:
-        raise BusinessMessageRejectException(
-                body.get("BusinessRejectReason"), body.get("Text"))
-    if msg_type == fix.MsgType.MarketDataRequestReject:
-        raise MarketDataRequestRejectException(
-                body.get("MDReqRejReason"), body.get("Text"))
+    if msg_type == fix.MsgType.ZMReject:
+        raise RejectException(body.get("ZMRejectReason"), body.get("Text"))
 
 
 async def send_recv_command_raw(sock, msg_type, **kwargs):
