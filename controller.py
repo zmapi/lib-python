@@ -182,7 +182,7 @@ class ConnectorCTL(Controller):
             raise MarketDataRequestRejectException(
                     "{}: {}".format(type(err).__name__, err))
         body = res["Body"]
-        for d in body["SecListGrp"]:
+        for d in body["NoRelatedSym"]:
             insid = d["ZMInstrumentID"]
             if insid not in self.insid_to_tid:
                 self.insid_to_tid[insid] = self.gen_ticker_id()
@@ -198,7 +198,7 @@ class ConnectorCTL(Controller):
                     fix.ZMRejectReason.UnsupportedMsgType)
         res = await self.ZMListDirectory(ident, msg_raw, msg)
         body = res["Body"]
-        for d in body["ZMDirEntries"]:
+        for d in body["ZMNoDirEntries"]:
             insid = d.get("ZMInstrumentID")
             if insid:
                 if insid not in self.insid_to_tid:
@@ -327,7 +327,7 @@ class RESTConnectorCTL(ConnectorCTL):
                 raise IOError("GET {}: status {}".format(url, r.status))
             data = await r.read()
         if close_session:
-            session.close()
+            await session.close()
         if hasattr(self, "_process_fetched_data"):
             data = self._process_fetched_data(data, url)
         return data
