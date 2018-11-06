@@ -228,6 +228,16 @@ class UserStatus(IntEnum):
     Disconnected = 9
 
 
+class ZMCap(IntEnum):
+    GetTickerFields = 0
+    ListDirectory = 1
+    ListEndpoints = 2
+    MDSubscribe = 3
+    PubOrderBookIncremental = 4
+    SyncMDSnapshot = 5
+    UnsyncMDSnapshot = 6
+
+
 class ZMRejectReason(IntEnum):
     Other = 0
     InvalidValue = 1
