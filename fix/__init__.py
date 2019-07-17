@@ -22,6 +22,7 @@ class HaltReason(IntEnum):
     AdditionalInformation = 3
     NewsPending = 4
     EquipmentChangeover = 5
+    SurveillanceIntervention = 101
 
 class MarketCondition(IntEnum):
     Normal = 0
@@ -49,15 +50,15 @@ class MDEntryType:
     TradingSessionLowPrice = "8"
     TradingSessionVWAPPrice = "9"
     Imbalance = "A"
-    TradeVolume = "B"
+    TradingSessionTradeVolume = "B"
     OpenInterest = "C"
     CompositeUnderlyingPrice = "D"
     SimulatedSellPrice = "E"
     SimulatedBuyPrice = "F"
     EmptyBook = "J"
     PriorSettlePrice = "M"
-    SessionHighBid = "N"
-    SessionLowOffer = "O"
+    TradingSessionHighBid = "N"
+    TradingSessionLowOffer = "O"
     AuctionClearingPrice = "Q"
     PreviousClosingPrice = "e"
 
@@ -93,6 +94,7 @@ class MDUpdateType(IntEnum):
 class MsgType:
     Heartbeat = "0"
     TestRequest = "1"
+    ResendRequest = "2"
     Reject = "3"
     Logout = "5"
     IOI = "6"
@@ -101,6 +103,8 @@ class MsgType:
     OrderCancelReject = "9"
     Logon = "A"
     News = "B"
+    MarketDefinitionRequest = "BT"
+    MarketDefinition = "BU"
     UserNotification = "CB"
     DontKnowTrade = "Q"
     QuoteRequest = "R"
@@ -110,7 +114,9 @@ class MsgType:
     MarketDataIncrementalRefresh = "X"
     MarketDataRequestReject = "Y"
     QuoteCancel = "Z"
+    ZMResendRequestResponse = "ZM2"
     ZMReject = "ZM3"
+    ZMMarketDefinitionRequestResponse = "ZMB"
     ZMListCapabilities = "ZMc"
     ZMListCapabilitiesResponse = "ZMC"
     ZMListDirectory = "ZMd"
@@ -119,11 +125,23 @@ class MsgType:
     ZMListEndpointsResponse = "ZME"
     ZMGetInstrumentFields = "ZMf"
     ZMGetInstrumentFieldsResponse = "ZMF"
+    ZMTradingSessionStatusRequestResponse = "ZMH"
+    ZMGetValidReqID = "ZMi"
+    ZMGetValidReqIDResponse = "ZMI"
+    ZMListCommonInstruments = "ZMl"
+    ZMListCommonInstrumentsResponse = "ZML"
     ZMMarketDataRequestResponse = "ZMM"
-    ZMGetStatus = "ZMs"
-    ZMGetStatusResponse = "ZMS"
-    ZMGetSubscriptions = "ZMv"
-    ZMGetSubscriptionsResponse = "ZMV"
+    ZMGetConnectorFeatures = "ZMo"
+    ZMGetConnectorFeaturesResponse = "ZMO"
+    ZMGetSessionID = "ZMs"
+    ZMGetSessionIDResponse = "ZMS"
+    ZMSecurityDefinitionRequestResponse = "ZMSD"
+    ZMSecurityStatusRequestResponse = "ZMSS"
+    ZMSecurityListRequestResponse = "ZMY"
+#     ZMGetStatus = "ZMs"
+#     ZMGetStatusResponse = "ZMS"
+#     ZMGetSubscriptions = "ZMv"
+#     ZMGetSubscriptionsResponse = "ZMV"
     SecurityDefinitionRequest = "c"
     SecurityDefinition = "d"
     SecurityStatusRequest = "e"
@@ -136,11 +154,6 @@ class MsgType:
     SecurityListRequest = "x"
     SecurityList = "y"
 
-ERROR_MSG_TYPES = set()
-ERROR_MSG_TYPES.add(MsgType.Reject)
-ERROR_MSG_TYPES.add(MsgType.BusinessMessageReject)
-ERROR_MSG_TYPES.add(MsgType.MarketDataRequestReject)
-ERROR_MSG_TYPES.add(MsgType.OrderCancelReject)
 
 class QuoteCondition:
     Open = "A"
@@ -229,13 +242,32 @@ class UserStatus(IntEnum):
 
 
 class ZMCap(IntEnum):
-    GetTickerFields = 0
-    ListDirectory = 1
+    GetInstrumentFields = 0
     ListEndpoints = 2
-    MDSubscribe = 3
-    PubOrderBookIncremental = 4
-    SyncMDSnapshot = 5
-    UnsyncMDSnapshot = 6
+    SecurityDefinitionOOBSnapshot = 5
+    SecurityDefinitionSubscribe = 6
+    SecurityListOOBSnapshot = 10
+    SecurityListSubscribe = 11
+    MarketDefinitionOOBSnapshot = 15
+    MarketDefinitionSubscribe = 16
+    TradingSessionStatusOOBSnapshot = 20
+    TradingSessionStatusSubscribe = 21
+    SecurityStatusOOBSnapshot = 25
+    SecurityStatusSubscribe = 26
+    ListDirectoryOOBSnapshot = 30
+    ListDirectorySubscribe = 31
+    MDOOBSnapshot = 50
+    MDSubscribe = 51
+    MDSnapshot = 52
+    MDMBP = 53
+    MDMBPIncremental = 54
+    MDMBPExplicitDelete = 55
+    MDBBO = 56
+    MDMBO = 60
+    MDMBPPlusMBO = 61
+    MDSaneMBO = 62
+
+
 
 
 class ZMRejectReason(IntEnum):
@@ -248,3 +280,5 @@ class ZMRejectReason(IntEnum):
     ConditionallyRequiredFieldMissing = 7
     InvalidPriceIncrement = 8
     UnsupportedMsgType = 9
+    InvalidField = 10
+    NoData = 11

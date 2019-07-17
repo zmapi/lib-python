@@ -16,13 +16,17 @@ def disable_logger(name):
     logger.handlers.clear()
     logger.propagate = False
 
-def setup_root_logger(log_level):
+def setup_root_logger(log_level, **kwargs):
+
+    fmt = kwargs.pop(
+            "fmt", "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s")
+    datefmt = kwargs.pop("datefmt", "%H:%M:%S")
+    if kwargs:
+        raise ValueError("unexpected kwargs: {}".format(sorted(kwargs.keys())))
 
     logger = logging.root
     logger.setLevel(log_level)
     logger.handlers.clear()
-    fmt = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s"
-    datefmt = "%H:%M:%S"
     formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
     # convert datetime to utc
     formatter.converter = gmtime
@@ -38,4 +42,13 @@ def setup_root_logger(log_level):
     stderr.level = logging.WARNING
     stderr.setFormatter(formatter)
     logger.addHandler(stderr)
+
+
+def setup_basic_logging(log_level, **kwargs):
+    # parso.* loggers are annoying when using ipdb
+    disable_logger("parso.python.diff")
+    disable_logger("parso.cache")
+    return setup_root_logger(log_level, **kwargs)
+
+
 

@@ -6,6 +6,7 @@ import string
 import json
 import zmq.asyncio
 import os
+import shutil
 from numbers import Number
 from time import time
 from uuid import uuid4
@@ -70,7 +71,7 @@ def check_if_error(msg):
     body = msg["Body"]
     msg_type = msg["Header"]["MsgType"]
     if msg_type == fix.MsgType.ZMReject:
-        raise RejectException(body.get("ZMRejectReason"), body.get("Text"))
+        raise RejectException(body.get("Text"), body.get("ZMRejectReason"))
 
 
 async def send_recv_command_raw(sock, msg_type, **kwargs):
@@ -136,6 +137,15 @@ def makedirs(path):
     if os.path.isfile(path):
         raise ValueError("'{}' is a file".format(path))
     os.makedirs(path)
+
+
+def wipe_dir(path):
+    for x in os.listdir(path):
+        fn = os.path.join(path, x)
+        if os.path.isfile(fn):
+            os.unlink(fn)
+        elif os.path.isdir(fn):
+            shutil.rmtree(fn)
 
 
 def get_zmapi_dir():

@@ -16,6 +16,7 @@ from collections import defaultdict
 from copy import deepcopy
 from uuid import uuid4
 from zmapi import fix
+from base64 import b64encode, b64decode
 
 
 L = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ L = logging.getLogger(__name__)
 class Controller:
 
 
-    def __init__(self, sock_dn, name=None):
+    def __init__(self, sock_dn, name=None, sessionless=False):
         self._name = name
         if self._name:
             self._tag = "[" + self._name + "] "
@@ -32,6 +33,10 @@ class Controller:
             self._tag = ""
         self._sock_dn = sock_dn
         self._commands = {}
+        if sessionless:
+            self.session_id = None
+        else:
+            self.session_id = str(uuid4())
         # subclass to superclass order
         mro = [x for x in self.__class__.mro()
                if issubclass(x, Controller)]
@@ -74,18 +79,19 @@ class Controller:
 
 
     async def _handle_msg_1(self, ident, msg_id, msg_raw):
+        msg = json.loads(msg_raw.decode())
+        msg_type = msg["Header"]["MsgType"]
+        debug_str = "ident={}, MsgType={}, msg_id={}"
+        debug_str = debug_str.format(
+                ident_to_str(ident), msg_type, msg_id)
+        L.debug(self._tag + "> " + debug_str)
         try:
-            msg = json.loads(msg_raw.decode())
-            msg_type = msg["Header"]["MsgType"]
-            debug_str = "ident={}, MsgType={}, msg_id={}"
-            debug_str = debug_str.format(
-                    ident_to_str(ident), msg_type, msg_id)
-            L.debug(self._tag + "> " + debug_str)
             res = await self._handle_msg_2(
                     ident, msg_raw, msg, msg_type)
         except RejectException as e:
-            L.exception(self._tag + "ZMReject processing {}: {}"
-                        .format(msg_id, str(e)))
+            if e.error_condition:
+                L.exception(self._tag + "ZMReject processing {}: {}"
+                            .format(msg_id, str(e)))
             text, reason, field_name = e.args
             await self._send_xreject(ident,
                                      msg_id,
@@ -124,8 +130,18 @@ class Controller:
 class ConnectorCTL(Controller):
 
 
-    def __init__(self, sock_dn, name=None):
+    def __init__(self, sock_dn, ep_name, **kwargs):
+            #name=None, caps=None, feats=None):
+        name = kwargs.pop("name", None)
+        self._caps = kwargs.pop("caps", None)
+        feats = kwargs.pop("feats", None)
+        if feats:
+            feats = json.dumps(feats)
+            feats = b64encode(feats.encode()).decode()
+        self._feats = feats
+        self._ins_fields = kwargs.pop("ins_fields", None)
         super().__init__(sock_dn, name=name)
+        self._ep_name = ep_name
         self._subscriptions = {}
         self.insid_to_tid = {}
         self._ticker_id = 0
@@ -137,75 +153,67 @@ class ConnectorCTL(Controller):
         return tid
 
 
-    # It's a required duty for each connector to track it's subscriptions.
-    # It's not as good to implement this in a middleware module because
-    # middleware lifecycle may not be synchronized with the connector
-    # lifecycle.
-    async def _handle_market_data_request(self, ident, msg_raw, msg):
-        sub_def = deepcopy(msg["Body"])
-        md_req_id = sub_def.pop("MDReqID", None)
-        instrument_id = sub_def["ZMInstrumentID"]
-        if instrument_id not in self.insid_to_tid:
-            self.insid_to_tid[instrument_id] = self.gen_ticker_id()
-        tid = self.insid_to_tid[instrument_id]
-        old_sub_def = self._subscriptions.get(tid)
-        if sub_def["SubscriptionRequestType"] == '2':
-            self._subscriptions.pop(tid, None)
-        elif sub_def["SubscriptionRequestType"] == "1":
-            self._subscriptions[tid] = sub_def
-        try:
-            res = await self.MarketDataRequest(ident, msg_raw, msg)
-            res["Body"]["ZMTickerID"] = tid
-            if md_req_id:
-                res["Body"]["MDReqID"] = md_req_id
-        except Exception as e:
-            if old_sub_def:
-                self._subscriptions[tid] = old_sub_def
-            else:
-                self._subscriptions.pop(tid, None)
-            raise e
-        return res
+    # # It's a required duty for each connector to track it's subscriptions.
+    # # It's not as good to implement this in a middleware module because
+    # # middleware lifecycle may not be synchronized with the connector
+    # # lifecycle.
+    # async def _handle_market_data_request(self, ident, msg_raw, msg):
+    #     sub_def = deepcopy(msg["Body"])
+    #     md_req_id = sub_def.pop("MDReqID", None)
+    #     instrument_id = sub_def["ZMInstrumentID"]
+    #     if instrument_id not in self.insid_to_tid:
+    #         self.insid_to_tid[instrument_id] = self.gen_ticker_id()
+    #     tid = self.insid_to_tid[instrument_id]
+    #     old_sub_def = self._subscriptions.get(tid)
+    #     if sub_def["SubscriptionRequestType"] == '2':
+    #         self._subscriptions.pop(tid, None)
+    #     elif sub_def["SubscriptionRequestType"] == "1":
+    #         self._subscriptions[tid] = sub_def
+    #     try:
+    #         res = await self.MarketDataRequest(ident, msg_raw, msg)
+    #         res["Body"]["ZMTickerID"] = tid
+    #         if md_req_id:
+    #             res["Body"]["MDReqID"] = md_req_id
+    #     except Exception as e:
+    #         if old_sub_def:
+    #             self._subscriptions[tid] = old_sub_def
+    #         else:
+    #             self._subscriptions.pop(tid, None)
+    #         raise e
+    #     return res
 
 
-    async def _handle_security_list_request(self, ident, msg_raw, msg):
-        if "SecurityListRequest" not in self.__class__.__dict__:
-            raise RejectException(
-                    "MsgType '{}' not supported".format(msg_type),
-                    fix.ZMRejectReason.UnsupportedMsgType)
-        try:
-            res = await self.SecurityListRequest(ident, msg_raw, msg)
-        except RejectException as err:
-            raise err
-        except BusinessMessageRejectException as err:
-            raise err
-        except Exception as err:
-            raise MarketDataRequestRejectException(
-                    "{}: {}".format(type(err).__name__, err))
-        body = res["Body"]
-        for d in body["NoRelatedSym"]:
-            insid = d["ZMInstrumentID"]
-            if insid not in self.insid_to_tid:
-                self.insid_to_tid[insid] = self.gen_ticker_id()
-            tid = self.insid_to_tid[insid]
-            d["ZMTickerID"] = tid
-        return res
+    # async def _handle_security_list_request(self, ident, msg_raw, msg):
+    #     if "SecurityListRequest" not in self.__class__.__dict__:
+    #         raise RejectException(
+    #                 "MsgType '{}' not supported".format(msg_type),
+    #                 fix.ZMRejectReason.UnsupportedMsgType)
+    #     res = await self.SecurityListRequest(ident, msg_raw, msg)
+    #     body = res["Body"]
+    #     for d in body["NoRelatedSym"]:
+    #         insid = d["ZMInstrumentID"]
+    #         if insid not in self.insid_to_tid:
+    #             self.insid_to_tid[insid] = self.gen_ticker_id()
+    #         tid = self.insid_to_tid[insid]
+    #         d["ZMTickerID"] = tid
+    #     return res
 
 
-    async def _handle_list_directory(self, ident, msg_raw, msg):
-        if "ZMListDirectory" not in self.__class__.__dict__:
-            raise RejectException(
-                    "MsgType '{}' not supported".format(msg_type),
-                    fix.ZMRejectReason.UnsupportedMsgType)
-        res = await self.ZMListDirectory(ident, msg_raw, msg)
-        body = res["Body"]
-        for d in body["ZMNoDirEntries"]:
-            insid = d.get("ZMInstrumentID")
-            if insid:
-                if insid not in self.insid_to_tid:
-                    self.insid_to_tid[insid] = self.gen_ticker_id()
-                tid = self.insid_to_tid[insid]
-                d["ZMTickerID"] = tid
-        return res
+    # async def _handle_list_directory(self, ident, msg_raw, msg):
+    #     if "ZMListDirectory" not in self.__class__.__dict__:
+    #         raise RejectException(
+    #                 "MsgType '{}' not supported".format(msg_type),
+    #                 fix.ZMRejectReason.UnsupportedMsgType)
+    #     res = await self.ZMListDirectory(ident, msg_raw, msg)
+    #     body = res["Body"]
+    #     for d in body["ZMNoDirEntries"]:
+    #         insid = d.get("ZMInstrumentID")
+    #         if insid:
+    #             if insid not in self.insid_to_tid:
+    #                 self.insid_to_tid[insid] = self.gen_ticker_id()
+    #             tid = self.insid_to_tid[insid]
+    #             d["ZMTickerID"] = tid
+    #     return res
 
 
     async def TestRequest(self, ident, msg_raw, msg):
@@ -219,39 +227,88 @@ class ConnectorCTL(Controller):
         return res
 
 
-    async def ZMGetSubscriptions(self, ident, msg_raw, msg):
-        body = msg["Body"]
-        tid = body.get("ZMTickerID")
+    # async def ZMGetSubscriptions(self, ident, msg_raw, msg):
+    #     body = msg["Body"]
+    #     tid = body.get("ZMTickerID")
+    #     res = {}
+    #     res["Header"] = {"MsgType": fix.MsgType.ZMGetSubscriptionsResponse}
+    #     res["Body"] = body = {}
+    #     if tid:
+    #         d = {"ZMTickerID": tid, "ZMSubscription": self._subscriptions[tid]}
+    #         body["ZMSubscriptionsGrp"] = [d]
+    #     else:
+    #         body["ZMSubscriptionsGrp"] = \
+    #                 [{"ZMTickerID": k, "ZMSubscription": v}
+    #                  for k, v in self._subscriptions.items()]
+    #     return res
+
+
+    async def ZMGetConnectorFeatures(self, ident, msg_raw, msg):
+        if not self._feats:
+            raise RejectException(
+                    "MsgType '{}' not supported".format(
+                            msg["Header"]["MsgType"]),
+                    fix.ZMRejectReason.UnsupportedMsgType)
         res = {}
-        res["Header"] = {"MsgType": fix.MsgType.ZMGetSubscriptionsResponse}
+        res["Header"] = {"MsgType": fix.MsgType.ZMGetConnectorFeaturesResponse}
         res["Body"] = body = {}
-        if tid:
-            d = {"ZMTickerID": tid, "ZMSubscription": self._subscriptions[tid]}
-            body["ZMSubscriptionsGrp"] = [d]
-        else:
-            body["ZMSubscriptionsGrp"] = \
-                    [{"ZMTickerID": k, "ZMSubscription": v}
-                     for k, v in self._subscriptions.items()]
+        body["ZMConnectorFeatures"] = self._feats
         return res
 
 
+    async def ZMGetInstrumentFields(self, ident, msg_raw, msg):
+        if not self._ins_fields:
+            raise RejectException(
+                    "MsgType '{}' not supported".format(
+                            msg["Header"]["MsgType"]),
+                    fix.ZMRejectReason.UnsupportedMsgType)
+        res = {}
+        res["Header"] = {"MsgType": fix.MsgType.ZMGetInstrumentFieldsResponse}
+        res["Body"] = body = {}
+        body["ZMNoInstrumentFields"] = self._ins_fields
+        return res
+
+
+    async def ZMListEndpoints(self, ident, msg_raw, msg):
+        res = {}
+        res["Header"] = header = {}
+        header["MsgType"] = fix.MsgType.ZMListEndpoints
+        res["Body"] = body = {}
+        body["ZMNoEndpoints"] = [self._ep_name]
+        return res
+
+
+    async def ZMListCapabilities(self, ident, msg_raw, msg):
+        if not self._caps:
+            raise RejectException(
+                    "MsgType '{}' not supported".format(
+                            msg["Header"]["MsgType"]),
+                    fix.ZMRejectReason.UnsupportedMsgType)
+        res = {}
+        res["Header"] = header = {}
+        header["MsgType"] = fix.MsgType.ZMListCapabilitiesResponse
+        res["Body"] = body = {}
+        body["ZMNoCaps"] = self._caps
+        return res
+        
+
     async def _handle_msg_2(self, ident, msg_raw, msg, msg_type):
-        if msg_type == fix.MsgType.MarketDataRequest:
-            return await self._handle_market_data_request(
-                    ident, msg_raw, msg)
-        elif msg_type == fix.MsgType.SecurityListRequest:
-            return await self._handle_security_list_request(
-                    ident, msg_raw, msg)
-        elif msg_type == fix.MsgType.ZMListDirectory:
-            return await self._handle_list_directory(
-                    ident, msg_raw, msg)
-        else:
-            f = self._commands.get(msg_type)
-            if not f:
-                raise RejectException(
-                        "MsgType '{}' not supported".format(msg_type),
-                        fix.ZMRejectReason.UnsupportedMsgType)
-            return await f(self, ident, msg_raw, msg)
+        # if msg_type == fix.MsgType.MarketDataRequest:
+        #     return await self._handle_market_data_request(
+        #             ident, msg_raw, msg)
+        # elif msg_type == fix.MsgType.SecurityListRequest:
+        #     return await self._handle_security_list_request(
+        #             ident, msg_raw, msg)
+        # elif msg_type == fix.MsgType.ZMListDirectory:
+        #     return await self._handle_list_directory(
+        #             ident, msg_raw, msg)
+        # else:
+        f = self._commands.get(msg_type)
+        if not f:
+            raise RejectException(
+                    "MsgType '{}' not supported".format(msg_type),
+                    fix.ZMRejectReason.UnsupportedMsgType)
+        return await f(self, ident, msg_raw, msg)
 
 
     # async def _handle_msg_2(self, ident, msg_id, msg, msg_type):
@@ -271,8 +328,9 @@ class RESTConnectorCTL(ConnectorCTL):
     capabilities."""
 
 
-    def __init__(self, sock_dn, ctx, throttler_addr=None, name=None):
-        super().__init__(sock_dn, name=name)
+    def __init__(self, sock_dn, ctx, ep_name,
+                 throttler_addr=None, name=None, **kwargs):
+        super().__init__(sock_dn, ep_name, name=name, **kwargs)
         self._ctx = ctx
         self._rest_result_cache = {}
         self._throttler_regexps = []
@@ -339,23 +397,16 @@ class RESTConnectorCTL(ConnectorCTL):
 class MiddlewareCTL(Controller):
 
 
-    def __init__(self, sock_dn, dealer):
+    def __init__(self, sock_dn, dealer, publisher=None):
         super().__init__(sock_dn)
         self._dealer = dealer
+        self._pub = publisher
 
 
-    async def send_recv_command(self, msg_type, **kwargs):
-        body = kwargs.get("body", None)
+    async def send_recv_msg(self, msg, **kwargs):
+        check_error = kwargs.get("check_error", False)
         ident = kwargs.get("ident", None)
         timeout = kwargs.get("timeout", None)
-        endpoint = kwargs.get("endpoint", None)
-        check_error = kwargs.get("check_error", None)
-        msg = {}
-        msg["Header"] = header = {}
-        header["MsgType"] = msg_type
-        if endpoint:
-            header["ZMEndpoint"] = endpoint
-        msg["Body"] = body if body is not None else {}
         msg_bytes = (" " + json.dumps(msg)).encode()
         msg_parts = await self._dealer.send_recv_msg(
                 msg_bytes, ident=ident, timeout=timeout)
@@ -367,16 +418,73 @@ class MiddlewareCTL(Controller):
         return msg
 
 
-    def _get_status(self):
-        return {}
+    async def send_recv_command(self, msg_type, **kwargs):
+        body = kwargs.pop("body", {})
+        endpoint = kwargs.pop("endpoint", None)
+        msg = {}
+        msg["Header"] = header = {}
+        header["MsgType"] = msg_type
+        if endpoint:
+            header["ZMEndpoint"] = endpoint
+        msg["Body"] = body
+        return await self.send_recv_msg(msg, **kwargs)
+
+        # body = kwargs.get("body", {})
+        # ident = kwargs.get("ident", None)
+        # timeout = kwargs.get("timeout", None)
+        # endpoint = kwargs.get("endpoint", None)
+        # check_error = kwargs.get("check_error", False)
+        # msg = {}
+        # msg["Header"] = header = {}
+        # header["MsgType"] = msg_type
+        # if endpoint:
+        #     header["ZMEndpoint"] = endpoint
+        # msg["Body"] = body
+        # msg_bytes = (" " + json.dumps(msg)).encode()
+        # msg_parts = await self._dealer.send_recv_msg(
+        #         msg_bytes, ident=ident, timeout=timeout)
+        # if not msg_parts:
+        #     return
+        # msg = json.loads(msg_parts[-1].decode())
+        # if check_error:
+        #     check_if_error(msg)
+        # return msg
 
 
-    async def ZMGetStatus(self, ident, msg_raw, msg):
-        res_up = await self._dealer.send_recv_msg(msg_raw, ident=ident)
-        res_up = json.loads(res_up[-1].decode())
+    async def ResendRequest(self, ident, msg_raw, msg):
+        body = msg["Body"]
+        start = body["BeginSeqNo"]
+        end = body["EndSeqNo"]
+        topic = body.get("ZMPubTopic")
+        req_id = body.get("ZMReqID")
+        send_to_pub = body.get("ZMSendToPub", False)
         res = {}
-        res["Header"] = res_up["Header"]
-        res["Body"] = [self._get_status()] + res_up["Body"]
+        res["Header"] = header = {}
+        header["MsgType"] = fix.MsgType.ZMResendRequestResponse
+        res["Body"] = body = {}
+        res["ZMSessionID"] = self.session_id
+        if send_to_pub:
+            await self._pub.republish(start, end, topic)
+            body["Text"] = "republished to pub"
+            return res
+        _, messages = zip(self._pub.fetch_messages(start, end, topic))
+        body["ZMNoPubMessages"] = group = []
+        for msg in messages:
+            msg = b64encode((" " + json.dumps(msg)).encode()).decode()
+            group.append(msg)
+        # if topics[0] is not None:  # if first topic is None, all of them are
+        #     body["ZMNoSubscriberTopics"] = group = []
+        #     for topic in topics:
+        #         group.append(b64encode(topic).decode())
+        return res
+
+
+    async def ZMGetSessionID(self, ident, msg_raw, msg):
+        if not self.session_id:
+            return (await self._dealer.send_recv_msg(msg_raw, ident=ident))[-1]
+        res = {}
+        res["Header"] = {"MsgType": fix.MsgType.ZMGetSessionIDResponse}
+        res["Body"] = {"ZMSessionID": self.session_id}
         return res
 
 
@@ -387,3 +495,9 @@ class MiddlewareCTL(Controller):
         if not f:
             res = await self._dealer.send_recv_msg(msg_raw, ident=ident)
             return res[-1]
+
+
+    async def run(self):
+        if not self._dealer.running:
+            create_task(self._dealer.run())
+        await super().run()
