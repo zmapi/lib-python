@@ -89,10 +89,16 @@ class Controller:
             res = await self._handle_msg_2(
                     ident, msg_raw, msg, msg_type)
         except RejectException as e:
+            text, reason, field_name = e.args
+            if reason == fix.ZMRejectReason.UnsupportedMsgType:
+                # Suppress error messages, this often happens when downstream
+                # tries whether a particular message type is supported or not.
+                s = f"MsgType not supported: {msg_type}"
+                L.debug(self._tag + s)
+                e.error_condition = False
             if e.error_condition:
                 L.exception(self._tag + "ZMReject processing {}: {}"
                             .format(msg_id, str(e)))
-            text, reason, field_name = e.args
             await self._send_xreject(ident,
                                      msg_id,
                                      reason,
